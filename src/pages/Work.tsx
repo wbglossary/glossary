@@ -102,9 +102,10 @@ export function WorkPage({ me, route }: PageProps) {
               <thead><tr>
                 {d?.can.approve ? <th><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
-                <th>Номер</th><th>Русский термин</th><th>Определение</th><th>Контекст</th><th>Проекты</th>
+                <th>Номер</th><th>Русский термин</th><th className="wide">{lang}</th><th>Статус</th>
+                <th>Определение</th><th>Контекст</th><th>Проекты</th>
                 {others ? <th>Другие языки</th> : null}
-                <th className="wide">{lang}</th><th>Статус</th><th />
+                <th />
               </tr></thead>
               <tbody>
                 {items.map((r) => (
@@ -113,15 +114,15 @@ export function WorkPage({ me, route }: PageProps) {
                       onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td> : null}
                     <td className="tb link" onClick={() => setOpen(r.id)}>{r.tb}</td>
                     <td className="link" onClick={() => setOpen(r.id)}><b>{r.ru}</b>{tab === 'new' ? <div className="muted small">{fmtDate(r.created_at, false)}</div> : null}</td>
-                    <td className="muted"><div className="clip">{r.definition}</div></td>
-                    <td className="muted">{r.context}</td>
-                    <td>{r.projects.join(', ')}</td>
-                    {others ? <td className="small">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
                     <td className={`c-${r.status}`}>
                       <TrCell row={r} lang={lang} canType={!!d?.can.type} onSaved={() => data.reload()} />
                       {r.forbidden.length ? <div className="small"><span className="muted">Как нельзя: </span>{r.forbidden.map((f, i) => <span key={i} className="forbidden" title={f.note}>{f.text}{i < r.forbidden.length - 1 ? ', ' : ''}</span>)}</div> : null}
                     </td>
                     <td><StatusBadge status={r.status} /></td>
+                    <td className="muted"><div className="clip">{r.definition}</div></td>
+                    <td className="muted">{r.context}</td>
+                    <td>{r.projects.join(', ')}</td>
+                    {others ? <td className="small">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
                     <td className="nowrap">
                       {d?.can.approve && (r.status === 'draft' || r.status === 'unchecked') ? <Button small kind="primary" onClick={() => approveRows([r])}>Согласовать</Button> : null}
                       {r.live.filter((x) => x.status !== 'draft').slice(0, 1).map((t) => d?.can.approve || d?.can.unchecked
