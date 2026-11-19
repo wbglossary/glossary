@@ -196,7 +196,7 @@ export async function runImport(sql: Sql, file: string, opts: { force?: boolean;
       if (en && lang && lang !== 'EN' && langSet.has('EN')) {
         await tx`insert into request_translations(request_id, lang, text, author_id) values (${q.id}, 'EN', ${en}, ${who(r['Автор'])})`;
       }
-      if (!who(r['Автор']) && s(r['Автор'])) problem(`Заявки: ${code} — автор «${s(r['Автор'])}» не найден среди людей, заявка без автора.`);
+      if (!who(r['Автор']) && s(r['Автор']) && !/^перенос/i.test(s(r['Автор']))) problem(`Заявки: ${code} — автор «${s(r['Автор'])}» не найден среди людей, заявка без автора.`);
       maxZ = Math.max(maxZ, Number(code.slice(2)));
       reqCount++;
     }
