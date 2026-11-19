@@ -3,7 +3,8 @@ import { can, fmtDate, rpc, type DashCard, type GlossaryItem, type Page } from '
 import { go, type PageProps } from '../router';
 import { Button, Empty, Message, SearchBox, useAsync } from '../ui/kit';
 import { TermDrawer } from '../ui/TermDrawer';
-import { TermsTable } from '../ui/TermsTable';
+import { DEFAULT_COLS, FIELD_COLS, TermsTable, type FieldCol } from '../ui/TermsTable';
+import { LangCellView } from '../ui/LangCellView';
 import { Icon } from '../ui/Icon';
 
 export function HomePage({ me }: PageProps) {
@@ -13,6 +14,10 @@ export function HomePage({ me }: PageProps) {
   const recent = useAsync(() => rpc<(GlossaryItem & { created_at: string })[]>('recent_terms', { p_limit: 10 }), []);
   const found = useAsync(() => (q.trim() ? rpc<Page<GlossaryItem>>('glossary_page', { p_q: q, p_size: 50 }) : Promise.resolve(null)), [q]);
   const langs = (me.prefs.langs?.length ? me.prefs.langs : me.languages.filter((l) => l.active).map((l) => l.code));
+  const cols = (me.prefs.cols ?? DEFAULT_COLS).filter((c): c is FieldCol => FIELD_COLS.some((f) => f.key === c));
+  // В «Недавно добавленных» — русский и язык человека; у кого языка нет — языки из «Столбцы…» (или английский)
+  const recentLangs = me.lang ? [me.lang] : me.prefs.langs?.length ? me.prefs.langs : ['EN'];
+  const kind = (c: string) => me.languages.find((l) => l.code === c)?.kind ?? 'full';
   const cards = dash.data ?? [];
   const allDone = cards.length > 0 && cards.every((c) => c.count === 0);
 
@@ -29,7 +34,7 @@ export function HomePage({ me }: PageProps) {
           <h2>Результаты {found.data ? <span className="muted">· {found.data.total}</span> : null}</h2>
           {found.error ? <Message kind="error">{found.error}</Message> : null}
           <div className="table-wrap">
-            {found.data ? <TermsTable me={me} items={found.data.items} langs={langs} openId={open} onOpen={setOpen} /> : null}
+            {found.data ? <TermsTable me={me} items={found.data.items} langs={langs} cols={cols} openId={open} onOpen={setOpen} /> : null}
             {found.data && !found.data.items.length ? <Empty>Ничего не найдено. {can.submit(me) ? 'Можно предложить этот термин.' : ''}</Empty> : null}
           </div>
         </>
@@ -51,12 +56,13 @@ export function HomePage({ me }: PageProps) {
           <h2>Недавно добавленные</h2>
           <div className="table-wrap">
             <table className="grid">
-              <thead><tr><th>Номер</th><th>Русский термин</th><th>Значение или контекст</th><th>Добавлен</th><th>Переводы</th></tr></thead>
+              <thead><tr><th>Номер</th><th>Русский термин</th><th>Определение или контекст</th>{recentLangs.map((l) => <th key={l}>{l}</th>)}<th>Добавлен</th></tr></thead>
               <tbody>{recent.data?.map((r) => (
                 <tr key={r.id} onClick={() => setOpen(r.id)} style={{ cursor: 'pointer' }}>
-                  <td className="tb">{r.tb}</td><td><b>{r.ru}</b></td><td className="muted">{r.context}</td>
+                  <td className="tb">{r.tb}</td><td><b>{r.ru}</b></td>
+                  <td className="muted"><div className="clip" title={r.definition || r.context}>{(r.definition && r.definition !== '—' ? r.definition : '') || r.context}</div></td>
+                  {recentLangs.map((l) => <LangCellView key={l} cell={r.cells[l]} kind={kind(l)} />)}
                   <td className="nowrap">{fmtDate(r.created_at, false)}</td>
-                  <td className="small">{Object.entries(r.cells).filter(([, c]) => c.t.length).map(([l, c]) => `${l}: ${c.t[0]}`).join(' · ')}</td>
                 </tr>
               ))}</tbody>
             </table>

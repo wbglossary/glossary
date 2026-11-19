@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fmtDate, langGen, rpc, type Forbidden, type GlossaryItem, type Me, type Page, type TermCard, type TermLang } from '../api';
 import { AuthorChip, CopyButton } from './bits';
 import { ChangeModal, type ChangeMode } from './ChangeModal';
@@ -14,6 +14,8 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
   const [confirm, setConfirm] = useState<null | 'archive' | 'restore' | 'delete' | 'obsolete' | 'merge'>(null);
   const [editRu, setEditRu] = useState(false);
   const [editFields, setEditFields] = useState<string | null>(null);
+  const [showEmpty, setShowEmpty] = useState(false);
+  useEffect(() => setShowEmpty(false), [id]);
 
   const act = async (fn: () => Promise<unknown>, ok: string, close = false) => {
     setBusy(true);
@@ -74,41 +76,59 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
               {c.can.edit_ru && !editRu ? <Button small onClick={() => setEditRu(true)}>Изменить русскую часть</Button> : null}
 
               <h4>Переводы</h4>
-              {c.langs.map((l) => (
+              {(() => {
+                // Пустые языки (перевода нет, полей нет) сворачиваются в одну строку; свой язык всегда виден.
+                const isEmpty = (l: TermLang) => !l.live.length && !l.unused && !l.history.length && !l.draft
+                  && !l.definition && !l.examples && !l.context && !l.forbidden.length && l.code !== me.lang;
+                const empty = c.langs.filter(isEmpty);
+                const shown = showEmpty ? c.langs : c.langs.filter((l) => !isEmpty(l));
+                const block = (l: TermLang) => (
                 <div key={l.code} className="langblock">
-                  <div className="langhead">
-                    <b>{l.code}</b> <span className="muted">{l.name}{l.kind === 'short' ? ' · сокращённый' : ''}</span>
-                    <StatusBadge status={l.status} />
-                    <span style={{ flex: 1 }} />
-                    {l.can.approve && (l.status === 'draft' || l.status === 'unchecked') ? <Button small kind="primary" disabled={busy} onClick={() => approve(l, true)}>Согласовать</Button> : null}
-                    {l.can.approve && l.status === 'approved' ? <Button small disabled={busy} onClick={() => approve(l, false)}>Снять согласование</Button> : null}
-                    {l.can.unused && l.status !== 'unused' ? <Button small onClick={() => { if (confirm_(`Пометить ${l.name} «Не используется»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не используется».'); }}>Не используется</Button> : null}
-                    {l.can.unused && l.unused ? <Button small onClick={() => act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: false }), 'Язык возвращён в работу.')}>Вернуть в работу</Button> : null}
-                  </div>
-                  {l.live.length ? l.live.map((t, i) => (
-                    <div key={t.id} className="row gap" style={{ marginTop: 6 }}>
-                      <span>{t.text}</span><CopyButton text={t.text} />
-                      {i > 0 ? <span className="muted small">вариант</span> : null}
-                      {t.status !== 'approved' ? <StatusBadge status={t.status as never} /> : null}
+                    <div className="langhead">
+                      <b>{l.code}</b> <span className="muted">{l.name}{l.kind === 'short' ? ' · сокращённый' : ''}</span>
+                      <StatusBadge status={l.status} />
                       <span style={{ flex: 1 }} />
-                      {l.can.edit && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'edit', lang: l, current: t })}>Изменить</Button> : null}
-                      {l.can.request && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
-                      {!l.can.edit && !l.can.request && l.can.type && t.status === 'approved' && me.role === 'translator' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
+                      {l.can.approve && (l.status === 'draft' || l.status === 'unchecked') ? <Button small kind="primary" disabled={busy} onClick={() => approve(l, true)}>Согласовать</Button> : null}
+                      {l.can.approve && l.status === 'approved' ? <Button small disabled={busy} onClick={() => approve(l, false)}>Снять согласование</Button> : null}
+                      {l.can.unused && l.status !== 'unused' ? <Button small onClick={() => { if (confirm_(`Пометить ${l.name} «Не используется»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не используется».'); }}>Не используется</Button> : null}
+                      {l.can.unused && l.unused ? <Button small onClick={() => act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: false }), 'Язык возвращён в работу.')}>Вернуть в работу</Button> : null}
                     </div>
-                  )) : <div className="muted small" style={{ marginTop: 6 }}>Перевода нет</div>}
-                  {c.status === 'active' && !l.unused ? (
-                    <div className="row gap" style={{ marginTop: 6 }}>
-                      {!l.live.length && (l.can.type || l.can.request) ? <Button small onClick={() => setModal({ mode: 'translation', lang: l })}>{l.can.type ? 'Вписать перевод' : 'Предложить перевод'}</Button> : null}
-                      {l.live.length && (l.can.type || l.can.request || l.can.edit) ? <Button small kind="link" onClick={() => setModal({ mode: 'variant', lang: l })}>Добавить вариант</Button> : null}
-                    </div>
-                  ) : null}
-                  {l.history.map((h, i) => <div key={i} className="muted small">было «{h.text}» → «{h.replaced_by}», {fmtDate(h.at, false)}</div>)}
-                  <LangFields l={l} />
-                  {l.can.fields ? (editFields === l.code
-                    ? <FieldsForm c={c} l={l} me={me} onDone={(saved) => { setEditFields(null); if (saved) { setMsg({ kind: 'ok', text: saved }); reload(); } }} />
-                    : <Button small kind="link" onClick={() => setEditFields(l.code)}>Поля языка и «Как нельзя»</Button>) : null}
-                </div>
-              ))}
+                    {l.live.length ? l.live.map((t, i) => (
+                      <div key={t.id} className="row gap" style={{ marginTop: 6 }}>
+                        <span>{t.text}</span><CopyButton text={t.text} />
+                        {i > 0 ? <span className="muted small">вариант</span> : null}
+                        {t.status !== 'approved' ? <StatusBadge status={t.status as never} /> : null}
+                        <span style={{ flex: 1 }} />
+                        {l.can.edit && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'edit', lang: l, current: t })}>Изменить</Button> : null}
+                        {l.can.request && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
+                        {!l.can.edit && !l.can.request && l.can.type && t.status === 'approved' && me.role === 'translator' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
+                      </div>
+                    )) : <div className="muted small" style={{ marginTop: 6 }}>Перевода нет</div>}
+                    {c.status === 'active' && !l.unused ? (
+                      <div className="row gap" style={{ marginTop: 6 }}>
+                        {!l.live.length && (l.can.type || l.can.request) ? <Button small onClick={() => setModal({ mode: 'translation', lang: l })}>{l.can.type ? 'Вписать перевод' : 'Предложить перевод'}</Button> : null}
+                        {l.live.length && (l.can.type || l.can.request || l.can.edit) ? <Button small kind="link" onClick={() => setModal({ mode: 'variant', lang: l })}>Добавить вариант</Button> : null}
+                      </div>
+                    ) : null}
+                    {l.history.map((h, i) => <div key={i} className="muted small">было «{h.text}» → «{h.replaced_by}», {fmtDate(h.at, false)}</div>)}
+                    <LangFields l={l} />
+                    {l.can.fields ? (editFields === l.code
+                      ? <FieldsForm c={c} l={l} me={me} onDone={(saved) => { setEditFields(null); if (saved) { setMsg({ kind: 'ok', text: saved }); reload(); } }} />
+                      : <Button small kind="link" onClick={() => setEditFields(l.code)}>Поля языка и «Как нельзя»</Button>) : null}
+                  </div>
+                );
+                return (
+                  <>
+                    {shown.map(block)}
+                    {empty.length ? (
+                      <div className="empty-langs">
+                        <span className="muted">{showEmpty ? 'Языки без перевода показаны выше.' : <>Нет перевода: <b>{empty.map((l) => l.code).join(', ')}</b></>}</span>
+                        <Button small kind="link" onClick={() => setShowEmpty(!showEmpty)}>{showEmpty ? 'Свернуть' : 'Показать'}</Button>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
 
               {c.pending.length ? (
                 <>

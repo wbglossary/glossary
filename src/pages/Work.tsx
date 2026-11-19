@@ -98,11 +98,11 @@ export function WorkPage({ me, route }: PageProps) {
           </div>
           {data.error ? <Message kind="error">{data.error}</Message> : null}
           <div className="table-wrap">
-            <table className="grid">
+            <table className={`grid sticky${d?.can.approve ? ' with-check' : ''}`}>
               <thead><tr>
-                {d?.can.approve ? <th><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
+                {d?.can.approve ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
-                <th>Номер</th><th>Русский термин</th><th className="wide">{lang}</th><th>Статус</th>
+                <th className="s1">Номер</th><th className="s2">Русский термин</th><th className="wide">{lang}</th><th>Статус</th>
                 <th>Определение</th><th>Контекст</th><th>Проекты</th>
                 {others ? <th>Другие языки</th> : null}
                 <th />
@@ -110,17 +110,17 @@ export function WorkPage({ me, route }: PageProps) {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id} className={open === r.id ? 'sel' : ''}>
-                    {d?.can.approve ? <td><input type="checkbox" disabled={!(r.status === 'draft' || r.status === 'unchecked')} checked={sel.includes(r.id)}
+                    {d?.can.approve ? <td className="s0"><input type="checkbox" disabled={!(r.status === 'draft' || r.status === 'unchecked')} checked={sel.includes(r.id)}
                       onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td> : null}
-                    <td className="tb link" onClick={() => setOpen(r.id)}>{r.tb}</td>
-                    <td className="link" onClick={() => setOpen(r.id)}><b>{r.ru}</b>{tab === 'new' ? <div className="muted small">{fmtDate(r.created_at, false)}</div> : null}</td>
+                    <td className="tb link s1" onClick={() => setOpen(r.id)}>{r.tb}</td>
+                    <td className="link s2" onClick={() => setOpen(r.id)}><b>{r.ru}</b>{tab === 'new' ? <div className="muted small">{fmtDate(r.created_at, false)}</div> : null}</td>
                     <td className={`c-${r.status}`}>
                       <TrCell row={r} lang={lang} canType={!!d?.can.type} onSaved={() => data.reload()} />
                       {r.forbidden.length ? <div className="small"><span className="muted">Как нельзя: </span>{r.forbidden.map((f, i) => <span key={i} className="forbidden" title={f.note}>{f.text}{i < r.forbidden.length - 1 ? ', ' : ''}</span>)}</div> : null}
                     </td>
                     <td><StatusBadge status={r.status} /></td>
-                    <td className="muted"><div className="clip">{r.definition}</div></td>
-                    <td className="muted">{r.context}</td>
+                    <td className="muted"><div className="clip" title={r.definition}>{r.definition}</div></td>
+                    <td className="muted"><div className="clip" title={r.context}>{r.context}</div></td>
                     <td>{r.projects.join(', ')}</td>
                     {others ? <td className="small">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
                     <td className="nowrap">
@@ -195,7 +195,32 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
   const [confirmDup, setConfirmDup] = useState<{ item: RequestItem; warnings: string[] } | null>(null);
   const [reject, setReject] = useState<RequestItem | null>(null);
   const [term, setTerm] = useState<number | null>(null);
+  const [sel, setSel] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
   const items = reqs.data ?? [];
+  const hasNew = items.some((r) => r.type === 'new');
+  const selectable = items.filter((r) => r.can_approve);
+  const canBulk = selectable.length > 0;
+
+  /** Утвердить выбранные по очереди. Заявки с возможным дублем не утверждаются молча — остаются для проверки. */
+  const approveSelected = async () => {
+    setBusy(true);
+    const ok: string[] = [], dup: string[] = [], err: string[] = [];
+    for (const r of items.filter((x) => sel.includes(x.id) && x.can_approve)) {
+      try {
+        const res = await rpc<ApproveRes>('approve_request', { p_request: r.id, p_version: r.version, p_force: false });
+        if (res.status === 'confirm') dup.push(r.code); else ok.push(r.code);
+      } catch (e) { err.push(`${r.code}: ${(e as Error).message}`); }
+    }
+    const m: { kind: 'ok' | 'error' | 'warn'; text: string }[] = [];
+    if (ok.length) m.push({ kind: 'ok', text: `Утверждено: ${ok.length} (${ok.join(', ')}).` });
+    if (dup.length) m.push({ kind: 'warn', text: `Не утверждены — возможный дубль, посмотрите по одной: ${dup.join(', ')}.` });
+    if (err.length) m.push({ kind: 'error', text: `Не получилось: ${err.join('; ')}` });
+    setMsgs(m);
+    setSel(dup.length ? items.filter((x) => dup.includes(x.code)).map((x) => x.id) : []);
+    setBusy(false);
+    reqs.reload();
+  };
 
   const approve = async (r: RequestItem, force = false) => {
     try {
@@ -218,15 +243,28 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
     <>
       {msgs.map((m, i) => <Message key={i} kind={m.kind} onClose={() => setMsgs([])}>{m.text}</Message>)}
       {reqs.error ? <Message kind="error">{reqs.error}</Message> : null}
+      {canBulk ? (
+        <div className="toolbar">
+          <Button kind="primary" disabled={!sel.length || busy} onClick={approveSelected}>
+            {busy ? 'Утверждаю…' : `Утвердить выбранные (${sel.length})`}</Button>
+          <span className="muted small">Отметьте заявки галочками. Заявки с возможным дублем не утвердятся — их нужно посмотреть по одной.</span>
+        </div>
+      ) : null}
       <div className="table-wrap">
         <table className="grid">
-          <thead><tr><th>Заявка</th><th>Что</th><th>Русский термин</th><th>Предложено</th><th>{lang}</th><th>Автор</th><th>Дубли</th><th /></tr></thead>
+          <thead><tr>
+            {canBulk ? <th><input type="checkbox" aria-label="Выбрать все" checked={sel.length > 0 && selectable.every((x) => sel.includes(x.id))}
+              onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
+            <th>Заявка</th><th>Что</th><th>Русский термин</th><th>Предложено</th>{hasNew ? <th>{lang}</th> : null}<th>Автор</th><th>Дубли</th><th />
+          </tr></thead>
           <tbody>
             {items.map((r) => (
-              <tr key={r.id}>
-                <td className="link" onClick={() => setOpen(r)}>{r.code}{r.comments ? <span className="ccount"><Icon name="comment" size={13} />{r.comments}</span> : null}</td>
+              <tr key={r.id} className={sel.includes(r.id) ? 'sel' : ''}>
+                {canBulk ? <td>{r.can_approve ? <input type="checkbox" aria-label={`Выбрать ${r.code}`} checked={sel.includes(r.id)}
+                  onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /> : null}</td> : null}
+                <td className="link nowrap" onClick={() => setOpen(r)}>{r.code}{r.comments ? <span className="ccount"><Icon name="comment" size={13} />{r.comments}</span> : null}</td>
                 <td>{r.type_label}{r.type === 'new' && !r.lang ? <div className="muted small">на все языки</div> : null}{r.ru_only ? <div className="muted small">русская часть (у {r.lang} нет валидатора)</div> : null}</td>
-                <td>{r.tb ? <span className="tb link" onClick={() => setTerm(r.term_id)}>{r.tb} </span> : null}<b>{r.ru}</b>{r.context ? <div className="muted small">{r.context}</div> : null}</td>
+                <td>{r.tb ? <div className="tb link tb-line" onClick={() => setTerm(r.term_id)}>{r.tb}</div> : null}<b>{r.ru}</b>{r.context ? <div className="muted small">{r.context}</div> : null}</td>
                 <td className="small">
                   {r.type === 'obsolete' ? <>Причина: {r.reason}</> : <>
                     {r.lang && r.translation ? <div><b>{r.lang}</b> {r.translation}</div> : null}
@@ -235,7 +273,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
                     {r.definition ? <div className="muted">{r.definition}</div> : null}
                   </>}
                 </td>
-                <td>{r.type === 'new' ? <ReqTranslation r={r} lang={lang} onSaved={() => reqs.reload()} disabled={!(me.role === 'translator' || me.role === 'validator')} /> : null}</td>
+                {hasNew ? <td>{r.type === 'new' ? <ReqTranslation r={r} lang={lang} onSaved={() => reqs.reload()} disabled={!(me.role === 'translator' || me.role === 'validator')} /> : null}</td> : null}
                 <td><AuthorChip a={r.author} /><div className="muted small">{fmtDate(r.created_at)}</div></td>
                 <td>{r.warnings.length ? <span className="badge st-draft" title={r.warnings.join('\n')}><Icon name="alert" size={12} /> {r.warnings.length}</span> : null}</td>
                 <td className="nowrap">
@@ -273,7 +311,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
           Заявка уйдёт в архив. Автор увидит статус «Отклонена» в «Моих заявках». Если нужно уточнить — лучше напишите комментарий к заявке.
         </Confirm>
       ) : null}
-      <p className="muted small" style={{ marginTop: 10 }}>Новый термин утверждается вместе с переводом на ваш язык: впишите его в столбец {lang}. <a href="#/propose" onClick={() => go('propose')}>Предложить термин</a></p>
+      {hasNew ? <p className="muted small" style={{ marginTop: 10 }}>Новый термин утверждается вместе с переводом на ваш язык: впишите его в столбец {lang}. <a href="#/propose" onClick={() => go('propose')}>Предложить термин</a></p> : null}
     </>
   );
 }

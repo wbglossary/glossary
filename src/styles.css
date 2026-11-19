@@ -184,6 +184,7 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; backgrou
   line-height: 1.3; white-space: nowrap; }
 .grid th, .grid td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 9px 12px; vertical-align: top; }
 .grid td .tb { display: inline-block; padding-top: 2px; }
+.grid td .tb.tb-line { display: block; padding: 0 0 2px; }
 .grid th:last-child, .grid td:last-child { border-right: none; }
 .grid tbody tr:last-child td { border-bottom: none; }
 .grid tbody tr { transition: background .12s; }
@@ -198,6 +199,17 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; backgrou
 .grid td.fc-context { min-width: 160px; }
 .grid .clip { max-width: 260px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .grid td input:not([type='checkbox']), .grid td select { min-height: 34px; }
+/* закреплённые слева «Номер» и «Русский термин» */
+.grid.sticky tbody tr { background: #fff; }
+.grid.sticky tbody tr:hover { background: #fbf9fe; }
+.grid.sticky .s0, .grid.sticky .s1, .grid.sticky .s2 { position: sticky; z-index: 2; background: inherit; }
+.grid.sticky th.s0, .grid.sticky th.s1, .grid.sticky th.s2 { z-index: 3; background: var(--soft); }
+.grid.sticky .s0 { left: 0; width: 40px; min-width: 40px; }
+.grid.sticky .s1 { left: 0; width: 100px; min-width: 100px; }
+.grid.sticky.with-check .s1 { left: 40px; }
+.grid.sticky .s2 { left: 100px; min-width: 180px; max-width: 260px; box-shadow: 6px 0 8px -6px rgba(40, 14, 80, .12); }
+.grid.sticky.with-check .s2 { left: 140px; }
+.grid.sticky tr.sel .s0, .grid.sticky tr.sel .s1, .grid.sticky tr.sel .s2 { background: var(--accent-bg); }
 .link { color: var(--accent-2); cursor: pointer; }
 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
 td.c-need { background: #fdf0f1; }
@@ -276,6 +288,7 @@ td.c-unused { background: #f6f6f8; color: var(--muted); }
 .comments li { border-bottom: 1px solid var(--line); padding: 12px 0; }
 .langblock { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 8px 0; transition: border-color .15s; }
 .langblock:hover { border-color: var(--line-strong); }
+.empty-langs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin: 8px 0; border: 1px dashed var(--line-strong); border-radius: 14px; font-size: 14px; }
 .langhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 26px; }
 .langhead b { min-width: 30px; font-family: var(--mono); font-size: 13px; }
 
