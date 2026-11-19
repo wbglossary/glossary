@@ -3,7 +3,7 @@ import { rpc, type GlossaryItem, type Page } from '../api';
 import type { PageProps } from '../router';
 import { Button, Empty, Message, Pager, SearchBox, useAsync } from '../ui/kit';
 import { TermDrawer } from '../ui/TermDrawer';
-import { TermsTable } from '../ui/TermsTable';
+import { DEFAULT_COLS, FIELD_COLS, TermsTable, type FieldCol } from '../ui/TermsTable';
 
 export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const active = me.languages.filter((l) => l.active);
@@ -21,7 +21,13 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
     () => rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any', p_page: page, p_size: 100, p_dupes: dupes }),
     [q, project, lang, mode, page, dupes]
   );
-  const saveLangs = async (list: string[]) => { await rpc('set_prefs', { p_prefs: { ...me.prefs, langs: list } }); await reloadMe(); };
+  const cols = (me.prefs.cols ?? DEFAULT_COLS).filter((c): c is FieldCol => FIELD_COLS.some((f) => f.key === c));
+  const [saving, setSaving] = useState(false);
+  const savePrefs = async (patch: { langs?: string[]; cols?: string[] }) => {
+    setSaving(true);
+    try { await rpc('set_prefs', { p_prefs: { ...me.prefs, ...patch } }); await reloadMe(); } finally { setSaving(false); }
+  };
+  const toggle = (list: string[], key: string, on: boolean) => (on ? [...list, key] : list.filter((x) => x !== key));
 
   return (
     <div>
@@ -42,21 +48,38 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
             <option value="has">есть перевод</option>
           </select>
         ) : null}
-        <Button onClick={() => setChooser(!chooser)}>Показывать языки…</Button>
+        <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
         {dupes ? <a href="#/glossary">показать все термины</a> : null}
       </div>
       {chooser ? (
-        <div className="card checks">
-          {active.map((l) => (
-            <label key={l.code}><input type="checkbox" checked={shown.includes(l.code)}
-              onChange={(e) => saveLangs(e.target.checked ? [...shown, l.code] : shown.filter((x) => x !== l.code))} /> {l.code} — {l.name}</label>
-          ))}
-          <span className="muted small">Выбор сохраняется только для вас.</span>
+        <div className="card colpick">
+          <div>
+            <h4>Поля</h4>
+            <div className="checks">
+              {FIELD_COLS.map((f) => (
+                <label key={f.key}><input type="checkbox" checked={cols.includes(f.key)} disabled={saving}
+                  onChange={(e) => savePrefs({ cols: toggle(cols, f.key, e.target.checked) })} /> {f.label}</label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4>Языки</h4>
+            <div className="checks">
+              {active.map((l) => (
+                <label key={l.code}><input type="checkbox" checked={shown.includes(l.code)} disabled={saving}
+                  onChange={(e) => savePrefs({ langs: toggle(shown, l.code, e.target.checked) })} /> {l.code} — {l.name}</label>
+              ))}
+            </div>
+          </div>
+          <div className="row gap">
+            <span className="muted small">Выбор сохраняется только для вас и действует на любом компьютере.</span>
+            <Button small kind="link" disabled={saving} onClick={() => savePrefs({ cols: DEFAULT_COLS, langs: active.map((l) => l.code) })}>Вернуть как было</Button>
+          </div>
         </div>
       ) : null}
       {error ? <Message kind="error">{error}</Message> : null}
       <div className="table-wrap">
-        {data ? <TermsTable me={me} items={data.items} langs={shown} openId={open} onOpen={setOpen} /> : null}
+        {data ? <TermsTable me={me} items={data.items} langs={shown} cols={cols} openId={open} onOpen={setOpen} /> : null}
         {!loading && data && !data.items.length ? <Empty>Ничего не найдено.</Empty> : null}
         {loading ? <div className="empty">Загрузка…</div> : null}
       </div>

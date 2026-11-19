@@ -393,6 +393,7 @@ begin
   ), pg as (select * from base order by lower(ru), tb limit v_size offset (greatest(p_page, 1) - 1) * v_size)
   select (select count(*) from base), coalesce(jsonb_agg(jsonb_build_object(
       'id', pg.id, 'tb', pg.tb, 'ru', pg.ru, 'context', pg.context, 'version', pg.version,
+      'definition', pg.definition, 'examples', pg.examples, 'comment', pg.comment,
       'projects', coalesce((select jsonb_agg(pr.name order by pr.name) from term_projects tp join projects pr on pr.id = tp.project_id where tp.term_id = pg.id), '[]'),
       'cells', lang_cells(pg.id),
       'replaced', coalesce((select jsonb_agg(jsonb_build_object('lang', o.lang, 'old', o.text, 'new', n.text, 'at', o.obsolete_at) order by o.obsolete_at)

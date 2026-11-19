@@ -192,6 +192,10 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; backgrou
 .grid tr.off { color: var(--muted); }
 .grid.compact td, .grid.compact th { padding: 6px 10px; font-size: 13px; }
 .grid th.wide { min-width: 240px; }
+.colpick { display: flex; flex-direction: column; gap: 4px; }
+.colpick h4 { margin: 4px 0 8px; }
+.grid td.fc-definition, .grid td.fc-examples, .grid td.fc-comment { min-width: 220px; }
+.grid td.fc-context { min-width: 160px; }
 .grid .clip { max-width: 260px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .grid td input:not([type='checkbox']), .grid td select { min-height: 34px; }
 .link { color: var(--accent-2); cursor: pointer; }

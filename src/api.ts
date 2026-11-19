@@ -39,7 +39,7 @@ export interface Language { code: string; name: string; smartcat: string; kind: 
 export interface Project { id: number; name: string; closed: boolean }
 export interface Me {
   id: number; email: string; name: string; role: Role; lang: string | null; avatar: string; contractor_no: number | null;
-  prefs: { langs?: string[] }; is_en_validator: boolean; languages: Language[]; projects: Project[];
+  prefs: { langs?: string[]; cols?: string[] }; is_en_validator: boolean; languages: Language[]; projects: Project[];
 }
 
 export const can = {
@@ -66,6 +66,7 @@ export const STATUS_LABEL: Record<LangStatus, string> = {
 export interface Cell { t: string[]; s: LangStatus; f: boolean }
 export interface GlossaryItem {
   id: number; tb: string; ru: string; context: string; version: number; projects: string[];
+  definition?: string; examples?: string; comment?: string;
   cells: Record<string, Cell>; replaced: { lang: string; old: string; new: string; at: string }[];
   obsolete_request: { code: string; reason: string } | null;
   forbidden_hit: { lang: string; text: string; good: string }[] | null;

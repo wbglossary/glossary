@@ -103,6 +103,7 @@ test('новый термин языка KA: TB-, остальные полны�
   assert.equal(g.items[0].tb, 'TB-00001');
   assert.deepEqual(g.items[0].cells.KA.t, ['QR-კოდი']);
   assert.equal(g.items[0].cells.EN.s, 'need');
+  for (const k of ['definition', 'examples', 'comment', 'context']) assert.ok(k in g.items[0], `в строке глоссария есть поле ${k}`);
 });
 
 test('армянский видит термин в «Новое из других языков», переводит — одна строка, один TB', async () => {
