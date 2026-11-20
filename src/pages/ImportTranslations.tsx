@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { rpc, type Language } from '../api';
 import type { PageProps } from '../router';
 import { Button, Message } from '../ui/kit';
+import { readXlsxRaw } from '../xlsxRaw';
 
 /**
  * Загрузка готовых переводов от подрядчиков: одна таблица, сколько угодно языков.
@@ -41,6 +42,10 @@ function guessRole(h: string, langs: Language[]): Role {
   const s = h.trim().toLowerCase();
   if (!s) return '';
   if (/^(tb|номер|№|id)\b/.test(s)) return 'tb';
+  if (s === 'comments') return 'definition';   // Smartcat: общий комментарий = определение
+  if (/^ru(-ru)?\s+term\d*$/.test(s)) return 'ru';
+  const sc = s.match(/^([a-z]{2}(?:-[a-z]+)?)\s+term\d*$/);
+  if (sc) { const l = langs.find((x) => x.smartcat.toLowerCase() === sc[1] || x.code.toLowerCase() === sc[1].split('-')[0]); return l ? `lang:${l.code}` : ''; }
   if (/определ|definition|значение|описание/.test(s)) return 'definition';
   if (/коммент|comment|примеч|note|пример/.test(s)) return '';
   for (const l of langs) {
@@ -86,19 +91,29 @@ export function ImportTranslationsPage({ me }: PageProps) {
   const readFile = async (f: File) => {
     setMsg(null); setCheck(null); setFileName(f.name);
     try {
-      const { default: ExcelJS } = await import('exceljs');
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(await f.arrayBuffer());
-      const list: Sheet[] = [];
-      wb.eachSheet((ws) => {
-        const rows: string[][] = [];
-        ws.eachRow({ includeEmpty: false }, (r) => {
-          const out: string[] = [];
-          for (let i = 1; i <= ws.columnCount; i++) out.push(cellText(r.getCell(i).value));
-          rows.push(out);
+      const buf = await f.arrayBuffer();
+      let list: Sheet[] = [];
+      try {
+        const { default: ExcelJS } = await import('exceljs');
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(buf);
+        wb.eachSheet((ws) => {
+          const rows: string[][] = [];
+          ws.eachRow({ includeEmpty: false }, (r) => {
+            const out: string[] = [];
+            for (let i = 1; i <= ws.columnCount; i++) out.push(cellText(r.getCell(i).value));
+            rows.push(out);
+          });
+          if (rows.length) list.push({ name: ws.name, header: rows[0], rows: rows.slice(1) });
         });
-        if (rows.length) list.push({ name: ws.name, header: rows[0], rows: rows.slice(1) });
-      });
+      } catch {
+        // файл из Smartcat — читаем напрямую
+        list = (await readXlsxRaw(buf)).map((s) => {
+          const w = Math.max(...s.rows.map((r) => r.length));
+          const pad = (r: string[]) => [...r, ...Array(w - r.length).fill('')];
+          return { name: s.name, header: pad(s.rows[0]), rows: s.rows.slice(1).map(pad) };
+        });
+      }
       if (!list.length) { setMsg({ kind: 'error', text: 'В файле нет данных.' }); return; }
       setSheets(list); pickSheet(list, 0);
     } catch {
