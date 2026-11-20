@@ -56,6 +56,7 @@ const TEST: [string, string, string, string | null][] = [
   ['mix', 'Валидатор UZ, переводчик KY', 'validator', 'UZ']
 ];
 for (const [key, name, role, lang] of TEST) {
+  if (lang && !(await pg.query(`select 1 from languages where code = $1`, [lang])).rows.length) continue;   // языка нет в этой копии
   const email = `${key}@test.local`;
   await pg.query(`insert into profiles(email, name, role, lang, contractor_no)
     values ($1,$2,$3,$4, case when $3 = 'contractor' then (select coalesce(max(contractor_no), 0) + 1 from profiles) end)

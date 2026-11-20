@@ -355,10 +355,24 @@ td.c-unused { background: #f6f6f8; color: var(--muted); }
 .kind-i { background: #e7f6ec; color: var(--green); }
 
 /* ---------- Инструкция ---------- */
-.help-toc { padding-left: 22px; }
-.help-toc li { margin: 4px 0 14px; }
-.help-toc h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
-.help-toc li.soon h3 { color: var(--muted); font-weight: 500; }
+.help h2 { margin-top: 26px; }
+.help-hello { background: linear-gradient(135deg, #f4ecff, #fbf6ff); border: 1px solid #e3d4f8; border-radius: 20px; padding: 20px 22px; margin: 6px 0 22px; }
+.help-hello h2 { margin: 0 0 8px; font-size: 21px; }
+.help-hello p { margin: 0 0 10px; max-width: 70ch; }
+.help-toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 18px; }
+.help-toc a { text-decoration: none; font-size: 13px; padding: 5px 12px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); color: var(--accent); }
+.help-toc a:hover { border-color: var(--accent-2); background: var(--accent-bg); }
+.help-section { border-top: 1px solid var(--line); padding: 16px 0 6px; scroll-margin-top: 16px; }
+.help-section h3 { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 0 0 10px; }
+.help-num { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; flex: none; }
+.help-section p, .help-section li { max-width: 72ch; }
+.help-section ul, .help-section ol { padding-left: 22px; margin: 6px 0 12px; }
+.help-section li { margin: 4px 0; }
+.help-section ol.steps { list-style: none; padding-left: 0; counter-reset: step; }
+.help-section ol.steps li { counter-increment: step; position: relative; padding-left: 34px; margin: 8px 0; }
+.help-section ol.steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 8px; background: var(--accent-bg);
+  color: var(--accent); font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+.help-tip { background: #fff7e0; border: 1px solid #f0d68f; border-radius: 12px; padding: 10px 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
