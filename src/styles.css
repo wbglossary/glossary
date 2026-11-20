@@ -383,3 +383,7 @@ td.c-unused { background: #f6f6f8; color: var(--muted); }
 .colroles label { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
 .colroles label.on { border-color: var(--accent); background: var(--card, #fff); }
 .colroles label > span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filepick { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.filepick label.btn { position: relative; cursor: pointer; }
+.filepick input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.import-page .card > .field, .import-page .card > p { margin-top: 16px; }

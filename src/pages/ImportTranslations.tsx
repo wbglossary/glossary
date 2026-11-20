@@ -137,20 +137,16 @@ export function ImportTranslationsPage({ me }: PageProps) {
   return (
     <div className="import-page">
       <h1>Загрузка переводов подрядчиков</h1>
-      <p className="muted">Загрузите одну таблицу со всеми языками — сайт сам поймёт, где русский термин, определение и какие языки.
-        Сначала покажем, что с чем совпало: ничего не сохранится, пока вы не нажмёте «Загрузить».</p>
-      <ol className="small muted">
-        <li>Первая строка — названия столбцов: «Русский термин», «Определение», и по столбцу на язык (например, «KY», «Киргизский», «AM перевод»).</li>
-        <li>Термин ищем по русскому. Если в глоссарии несколько одинаковых русских терминов — по определению.</li>
-        <li>Языки без валидатора и сокращённые — сразу «Без проверки». Языки с валидатором — черновиком, его согласует валидатор.</li>
-        <li>Если у термина уже есть перевод на язык — его не трогаем. Несколько вариантов в ячейке — через точку с запятой.</li>
-      </ol>
+      <p className="muted">Таблица от подрядчика: русский термин, определение и столбцы с переводами. Сайт сам разложит переводы по языкам.</p>
       {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
       <div className="card">
-        <label className="field"><span>Таблица .xlsx</span>
-          <input type="file" accept=".xlsx" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ''; }} />
-          {fileName ? <span className="small muted">{fileName}</span> : null}
-        </label>
+        <div className="filepick">
+          <label className="btn primary">
+            Выбрать таблицу .xlsx
+            <input type="file" accept=".xlsx" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ''; }} />
+          </label>
+          <span className={fileName ? '' : 'muted'}>{fileName || 'Файл не выбран'}</span>
+        </div>
         {sheets.length > 1 ? (
           <label className="field"><span>Лист</span>
             <select value={sheetIx} onChange={(e) => pickSheet(sheets, Number(e.target.value))}>
@@ -180,6 +176,7 @@ export function ImportTranslationsPage({ me }: PageProps) {
               Языки: {langCols.length ? [...new Set(langCols.map((c) => c.code))].join(', ') : 'не найдены'} · строк с переводами: {payload().length}
             </p>
             <Button kind="primary" disabled={busy} onClick={() => run(false)}>{busy && !check ? 'Проверяю…' : 'Проверить'}</Button>
+            <p className="small muted">«Проверить» ничего не сохраняет — просто покажет, что куда попадёт.</p>
           </>
         ) : null}
       </div>
