@@ -15,8 +15,13 @@ import postgres from 'postgres';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { runProjectSheets, type Db } from './project-sheets';
+import { runMultilang } from './multilang-sheets';
 
-const [xlsx, reportFile] = process.argv.slice(2);
+// offline-apply.ts файл.xlsx отчёт.md [--apply]            — проектные листы Loco EN
+// offline-apply.ts multilang папка отчёт.md [--apply]     — многоязычные таблицы (папка с .json из Google Таблиц)
+const args = process.argv.slice(2).filter((a) => a !== '--apply');
+const mode = args[0] === 'multilang' ? 'multilang' : 'xlsx';
+const [xlsx, reportFile] = mode === 'multilang' ? args.slice(1) : args;
 const apply = process.argv.includes('--apply');
 if (!xlsx || !reportFile) { console.error('Нужно: файл.xlsx отчёт.md [--apply]'); process.exit(1); }
 const env = readFileSync('.env.local', 'utf8').split('\n').find((l) => l.startsWith('DATABASE_URL='));
@@ -85,7 +90,7 @@ const tag: Db = async (strings, ...vals) => {
   return (await pg.query(text, vals as unknown[])).rows as never;
 };
 await pg.exec('begin');
-const res = await runProjectSheets(tag, xlsx);
+const res = mode === 'multilang' ? await runMultilang(tag, xlsx) : await runProjectSheets(tag, xlsx);
 await pg.exec('commit');
 console.log(res.perSheet.join('\n')); console.log(res.summary);
 
