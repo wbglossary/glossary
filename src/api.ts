@@ -39,21 +39,24 @@ export interface Language { code: string; name: string; smartcat: string; kind: 
 export interface Project { id: number; name: string; closed: boolean }
 export interface Me {
   id: number; email: string; name: string; role: Role; lang: string | null; avatar: string; contractor_no: number | null;
+  langs: { code: string; role: 'translator' | 'validator' }[];   // языки человека и роль на каждом
   prefs: { langs?: string[]; cols?: string[] }; is_en_validator: boolean; languages: Language[]; projects: Project[];
 }
 
 export const can = {
   submit: (m: Me) => m.role !== 'reader',
-  validator: (m: Me) => m.role === 'validator',
+  validator: (m: Me) => m.langs.some((l) => l.role === 'validator'),
+  validatorOf: (m: Me, lang: string) => m.langs.some((l) => l.code === lang && l.role === 'validator'),
+  worksLang: (m: Me, lang: string) => m.langs.some((l) => l.code === lang),
   enValidator: (m: Me) => m.is_en_validator,
   editRu: (m: Me) => m.role === 'owner' || m.role === 'manager' || m.is_en_validator,
-  work: (m: Me) => m.role === 'translator' || m.role === 'validator',
+  work: (m: Me) => m.langs.length > 0,
   export: (m: Me) => m.role === 'manager' || m.role === 'owner',
   admin: (m: Me) => m.role === 'owner',
   archive: (m: Me) => m.role === 'owner' || m.role === 'validator',
   log: (m: Me) => m.role === 'owner' || m.role === 'validator',
   proposeLangs: (m: Me): string[] =>
-    m.role === 'translator' || m.role === 'validator' ? [m.lang!] : m.role === 'contractor' ? m.languages.filter((l) => l.active).map((l) => l.code) : [],
+    m.langs.length ? m.langs.map((l) => l.code) : m.role === 'contractor' ? m.languages.filter((l) => l.active).map((l) => l.code) : [],
   /** Языки без валидатора, где подрядчик пишет сразу */
   directLangs: (m: Me): Language[] => (m.role === 'contractor' ? m.languages.filter((l) => l.active && !l.has_validator) : [])
 };

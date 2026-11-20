@@ -4,14 +4,46 @@ import type { PageProps } from '../router';
 import { Avatar } from '../ui/Avatar';
 import { Button, Message, useAsync } from '../ui/kit';
 
-interface AUser { id: number; email: string; name: string; role: Role; role_label: string; lang: string | null; contractor_no: number | null; avatar: string; active: boolean; last_seen: string | null; joined: boolean }
+type LangRole = { code: string; role: 'translator' | 'validator' };
+interface AUser { id: number; email: string; name: string; role: Role; role_label: string; lang: string | null; langs: LangRole[]; contractor_no: number | null; avatar: string; active: boolean; last_seen: string | null; joined: boolean }
 interface ALang { code: string; name: string; smartcat: string; kind: 'full' | 'short'; active: boolean; validator: string | null; unchecked: number }
 
+// «Переводчик / валидатор» — одна роль в форме; на каждом языке своя роль (например, валидатор UZ и переводчик KY)
 const ROLES: { v: Role; l: string }[] = [
-  { v: 'validator', l: 'Валидатор' }, { v: 'translator', l: 'Переводчик' }, { v: 'manager', l: 'Менеджер' },
+  { v: 'translator', l: 'Переводчик / валидатор' }, { v: 'manager', l: 'Менеджер' },
   { v: 'contractor', l: 'Подрядчик' }, { v: 'reader', l: 'Читатель' }, { v: 'owner', l: 'Владелец' }
 ];
 const needsLang = (r: Role) => r === 'validator' || r === 'translator';
+const formRole = (r: Role): Role => (r === 'validator' ? 'translator' : r);
+const langsDesc = (ls: LangRole[]) => ls.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ');
+/** Что отправить в базу: роль-сводка и список языков с ролями */
+const payload = (role: Role, langs: LangRole[]) => needsLang(role)
+  ? { p_role: langs.some((l) => l.role === 'validator') ? 'validator' : 'translator', p_lang: null, p_langs: langs.filter((l) => l.code).map((l) => ({ lang: l.code, role: l.role })) }
+  : { p_role: role, p_lang: null, p_langs: null };
+
+/** Языки человека: каждая строка — язык и роль на нём */
+function LangRolesEditor({ value, onChange, langs }: { value: LangRole[]; onChange: (v: LangRole[]) => void; langs: { code: string; name: string }[] }) {
+  const used = new Set(value.map((l) => l.code));
+  return (
+    <div className="field">
+      <span>Языки и роль на каждом</span>
+      {value.map((l, i) => (
+        <div key={i} className="row gap lang-role">
+          <select value={l.code} aria-label="Язык" onChange={(e) => onChange(value.map((x, j) => (j === i ? { ...x, code: e.target.value } : x)))}>
+            <option value="">— язык —</option>
+            {langs.filter((x) => x.code === l.code || !used.has(x.code)).map((x) => <option key={x.code} value={x.code}>{x.code} — {x.name}</option>)}
+          </select>
+          <select value={l.role} aria-label="Роль на языке" onChange={(e) => onChange(value.map((x, j) => (j === i ? { ...x, role: e.target.value as LangRole['role'] } : x)))}>
+            <option value="translator">переводчик</option><option value="validator">валидатор</option>
+          </select>
+          {value.length > 1 ? <Button small kind="link" onClick={() => onChange(value.filter((_, j) => j !== i))}>убрать</Button> : null}
+        </div>
+      ))}
+      <Button small kind="link" onClick={() => onChange([...value, { code: '', role: 'translator' }])}>+ ещё язык</Button>
+      <span className="muted small">Валидатор утверждает переводы своего языка; у языка может быть только один валидатор.</span>
+    </div>
+  );
+}
 
 export function AdminPage({ me, reloadMe }: PageProps) {
   const [tab, setTab] = useState<'users' | 'langs' | 'projects'>('users');
@@ -38,8 +70,9 @@ type Act = (fn: () => Promise<unknown>, ok: string, after?: () => void) => Promi
 
 function Users({ me, act }: { me: PageProps['me']; act: Act }) {
   const { data, reload } = useAsync(() => rpc<AUser[]>('admin_users'), []);
-  const [form, setForm] = useState({ email: '', name: '', role: 'translator' as Role, lang: '' });
-  const [edit, setEdit] = useState<AUser | null>(null);
+  const emptyForm = { email: '', name: '', role: 'translator' as Role, langs: [{ code: '', role: 'translator' }] as LangRole[] };
+  const [form, setForm] = useState(emptyForm);
+  const [edit, setEdit] = useState<(AUser & { formLangs: LangRole[] }) | null>(null);
   const langs = me.languages.filter((l) => l.active);
   return (
     <>
@@ -51,29 +84,23 @@ function Users({ me, act }: { me: PageProps['me']; act: Act }) {
           <label className="field"><span>Роль</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>{ROLES.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}</select>
           </label>
-          {needsLang(form.role) ? (
-            <label className="field"><span>Язык</span>
-              <select value={form.lang} onChange={(e) => setForm({ ...form, lang: e.target.value })}>
-                <option value="">— выберите —</option>{langs.map((l) => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
-              </select>
-            </label>
-          ) : null}
         </div>
-        <Button kind="primary" onClick={() => act(() => rpc('admin_create_user', { p_email: form.email, p_name: form.name, p_role: form.role, p_lang: needsLang(form.role) ? form.lang : null }),
-          'Человек добавлен. Пока приложение Google в тестовом режиме, добавьте эту почту и в «Test users» Google.', () => { setForm({ email: '', name: '', role: 'translator', lang: '' }); reload(); })}>Добавить</Button>
+        {needsLang(form.role) ? <LangRolesEditor value={form.langs} onChange={(v) => setForm({ ...form, langs: v })} langs={langs} /> : null}
+        <Button kind="primary" onClick={() => act(() => rpc('admin_create_user', { p_email: form.email, p_name: form.name, ...payload(form.role, form.langs) }),
+          'Человек добавлен. Пока приложение Google в тестовом режиме, добавьте эту почту и в «Test users» Google.', () => { setForm(emptyForm); reload(); })}>Добавить</Button>
         <p className="muted small">Подрядчик получает постоянный номер («Подрядчик 3») и видит остальных только по роли и языку.</p>
       </div>
       <div className="table-wrap">
         <table className="grid">
-          <thead><tr><th /><th>Имя</th><th>Почта</th><th>Роль</th><th>Язык</th><th>Входил</th><th /></tr></thead>
+          <thead><tr><th /><th>Имя</th><th>Почта</th><th>Роль и языки</th><th>Входил</th><th /></tr></thead>
           <tbody>{data?.map((u) => (
             <tr key={u.id} className={u.active ? '' : 'off'}>
               <td><Avatar name={u.avatar} size={28} /></td>
               <td><b>{u.name}</b>{u.contractor_no ? <span className="muted"> · Подрядчик {u.contractor_no}</span> : null}{u.active ? null : <span className="badge st-unused">отключён</span>}</td>
-              <td>{u.email}</td><td>{u.role_label}</td><td>{u.lang}</td>
+              <td>{u.email}</td><td>{u.langs.length ? langsDesc(u.langs) : u.role_label}</td>
               <td className="small">{u.last_seen ? fmtDate(u.last_seen) : u.joined ? 'да' : 'ещё не входил'}</td>
               <td className="nowrap">
-                <Button small onClick={() => setEdit(u)}>Изменить</Button>
+                <Button small onClick={() => setEdit({ ...u, role: formRole(u.role), formLangs: u.langs.length ? u.langs : [{ code: '', role: 'translator' }] })}>Изменить</Button>
                 {u.id !== me.id ? <Button small kind={u.active ? 'danger' : 'primary'} onClick={() => act(() => rpc('admin_set_active', { p_user: u.id, p_active: !u.active }),
                   u.active ? 'Пользователь отключён.' : 'Пользователь включён.', reload)}>{u.active ? 'Отключить' : 'Включить'}</Button> : null}
               </td>
@@ -89,15 +116,9 @@ function Users({ me, act }: { me: PageProps['me']; act: Act }) {
             <label className="field"><span>Роль</span>
               <select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value as Role })}>{ROLES.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}</select>
             </label>
-            {needsLang(edit.role) ? (
-              <label className="field"><span>Язык</span>
-                <select value={edit.lang ?? ''} onChange={(e) => setEdit({ ...edit, lang: e.target.value })}>
-                  <option value="">— выберите —</option>{langs.map((l) => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
-                </select>
-              </label>
-            ) : null}
+            {needsLang(edit.role) ? <LangRolesEditor value={edit.formLangs} onChange={(v) => setEdit({ ...edit, formLangs: v })} langs={langs} /> : null}
             <div className="actions">
-              <Button kind="primary" onClick={() => act(() => rpc('admin_update_user', { p_user: edit.id, p_name: edit.name, p_role: edit.role, p_lang: needsLang(edit.role) ? edit.lang : null }),
+              <Button kind="primary" onClick={() => act(() => rpc('admin_update_user', { p_user: edit.id, p_name: edit.name, ...payload(edit.role, edit.formLangs) }),
                 'Сохранено.', () => { setEdit(null); reload(); })}>Сохранить</Button>
               <Button onClick={() => setEdit(null)}>Отмена</Button>
             </div>

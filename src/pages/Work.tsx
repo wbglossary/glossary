@@ -14,7 +14,7 @@ interface WorkPageData {
 }
 
 function myLangs(me: Me): string[] {
-  if (me.role === 'translator' || me.role === 'validator') return [me.lang!];
+  if (me.langs.length) return me.langs.map((l) => l.code);
   if (me.role === 'owner') return me.languages.filter((l) => l.active).map((l) => l.code);
   return can.directLangs(me).map((l) => l.code);
 }
@@ -33,7 +33,7 @@ export function WorkPage({ me, route }: PageProps) {
   const [modal, setModal] = useState<null | { mode: ChangeMode; row: WorkItem; current?: { id: number; text: string } }>(null);
   const [others, setOthers] = useState(true);
   const language = me.languages.find((l) => l.code === lang);
-  const isWorker = me.role === 'translator' || me.role === 'validator';
+  const isWorker = can.worksLang(me, lang ?? '');
 
   useEffect(() => { setSel([]); setPage(1); }, [lang, tab, status, project, q]);
   const data = useAsync(() => (tab === 'requests' ? Promise.resolve(null)
@@ -273,7 +273,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
                     {r.definition ? <div className="muted">{r.definition}</div> : null}
                   </>}
                 </td>
-                {hasNew ? <td>{r.type === 'new' ? <ReqTranslation r={r} lang={lang} onSaved={() => reqs.reload()} disabled={!(me.role === 'translator' || me.role === 'validator')} /> : null}</td> : null}
+                {hasNew ? <td>{r.type === 'new' ? <ReqTranslation r={r} lang={lang} onSaved={() => reqs.reload()} disabled={!can.worksLang(me, lang)} /> : null}</td> : null}
                 <td><AuthorChip a={r.author} /><div className="muted small">{fmtDate(r.created_at)}</div></td>
                 <td>{r.warnings.length ? <span className="badge st-draft" title={r.warnings.join('\n')}><Icon name="alert" size={12} /> {r.warnings.length}</span> : null}</td>
                 <td className="nowrap">

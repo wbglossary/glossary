@@ -74,21 +74,35 @@ end $$;
 
 -- ---------- Права ----------
 create or replace function is_owner(u profiles) returns boolean language sql immutable as $$ select u.role = 'owner' $$;
-create or replace function is_en_validator(u profiles) returns boolean language sql immutable as $$ select u.role = 'validator' and u.lang = 'EN' $$;
-create or replace function is_validator_of(u profiles, p_lang text) returns boolean language sql immutable as $$ select u.role = 'validator' and u.lang = p_lang $$;
-create or replace function works_lang(u profiles, p_lang text) returns boolean language sql immutable as $$ select u.role in ('translator','validator') and u.lang = p_lang $$;
+-- Языки человека с ролью на каждом (profile_langs). Переводчик и валидатор могут работать на нескольких языках.
+create or replace function is_validator_of(u profiles, p_lang text) returns boolean language sql stable as $$
+  select u.role in ('translator','validator') and exists (select 1 from profile_langs pl where pl.profile_id = u.id and pl.lang = p_lang and pl.role = 'validator')
+$$;
+create or replace function works_lang(u profiles, p_lang text) returns boolean language sql stable as $$
+  select u.role in ('translator','validator') and exists (select 1 from profile_langs pl where pl.profile_id = u.id and pl.lang = p_lang)
+$$;
+create or replace function is_en_validator(u profiles) returns boolean language sql stable as $$ select is_validator_of(u, 'EN') $$;
+-- языки, где человек валидатор / где работает (по порядку языков)
+create or replace function validator_langs(u profiles) returns text[] language sql stable as $$
+  select coalesce(array(select pl.lang from profile_langs pl join languages l on l.code = pl.lang
+    where pl.profile_id = u.id and pl.role = 'validator' and u.role in ('translator','validator') order by case when pl.lang = 'EN' then 0 else 1 end, l.sort), '{}')
+$$;
+create or replace function work_langs(u profiles) returns text[] language sql stable as $$
+  select coalesce(array(select pl.lang from profile_langs pl join languages l on l.code = pl.lang
+    where pl.profile_id = u.id and u.role in ('translator','validator') order by (pl.role = 'validator') desc, case when pl.lang = 'EN' then 0 else 1 end, l.sort), '{}')
+$$;
 create or replace function lang_has_validator(p_lang text) returns boolean language sql stable as $$
-  select exists (select 1 from profiles v where v.role = 'validator' and v.lang = p_lang and v.active)
+  select exists (select 1 from profile_langs pl join profiles v on v.id = pl.profile_id where pl.lang = p_lang and pl.role = 'validator' and v.active)
 $$;
 create or replace function contractor_direct(u profiles, p_lang text) returns boolean language sql stable as $$
   select u.role = 'contractor' and not lang_has_validator(p_lang)
 $$;
-create or replace function can_edit_ru(u profiles) returns boolean language sql immutable as $$
-  select u.role in ('owner','manager') or (u.role = 'validator' and u.lang = 'EN')
+create or replace function can_edit_ru(u profiles) returns boolean language sql stable as $$
+  select u.role in ('owner','manager') or is_en_validator(u)
 $$;
 create or replace function can_export(u profiles) returns boolean language sql immutable as $$ select u.role in ('manager','owner') $$;
 create or replace function propose_langs(u profiles) returns text[] language sql stable as $$
-  select case when u.role in ('translator','validator') then array[u.lang]
+  select case when u.role in ('translator','validator') then work_langs(u)
               when u.role = 'contractor' then array(select l.code from languages l where l.active order by l.sort)
               else '{}'::text[] end
 $$;
@@ -249,6 +263,11 @@ create or replace function request_for_lang(r requests, p_lang text) returns boo
     else coalesce(r.lang = p_lang, false) end
 $$;
 
+-- язык валидатора, к которому относится заявка (у человека может быть несколько языков)
+create or replace function validator_lang_for(u profiles, r requests) returns text language sql stable as $$
+  select x from unnest(validator_langs(u)) x where request_for_lang(r, x) limit 1
+$$;
+
 -- Остальные заявки на замену того же перевода снимаются автоматически
 create or replace function auto_remove_replacements(u profiles, p_term int, p_lang text, p_old int, p_except int) returns void language plpgsql as $$
 declare o record;
@@ -277,6 +296,8 @@ begin
      where id = u.id returning * into u;
   end if;
   return jsonb_build_object('id', u.id, 'email', u.email, 'name', u.name, 'role', u.role, 'lang', u.lang, 'avatar', u.avatar,
+    'langs', coalesce((select jsonb_agg(jsonb_build_object('code', pl.lang, 'role', pl.role) order by (pl.role = 'validator') desc, case when pl.lang = 'EN' then 0 else 1 end, l.sort)
+              from profile_langs pl join languages l on l.code = pl.lang where pl.profile_id = u.id and u.role in ('translator','validator')), '[]'),
     'contractor_no', u.contractor_no, 'prefs', u.prefs, 'is_en_validator', is_en_validator(u),
     'languages', (select coalesce(jsonb_agg(jsonb_build_object('code', l.code, 'name', l.name, 'smartcat', l.smartcat_code, 'kind', l.kind,
                     'active', l.active, 'has_validator', lang_has_validator(l.code)) order by case when l.code = 'EN' then 0 else 1 end, l.sort, l.code), '[]') from languages l),
@@ -305,26 +326,32 @@ create or replace function dashboard() returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); cards jsonb := '[]'; n int; l record;
 begin
-  if u.role in ('translator','validator') then
-    if (select kind from languages where code = u.lang) = 'full' then
-      select count(*) into n from terms t where t.status = 'active' and lang_status(t.id, u.lang) = 'need';
-      cards := cards || jsonb_build_object('key', 'need', 'label', 'Нужен перевод', 'count', n, 'link', 'work?tab=mine&status=need');
-    end if;
-    select count(*) into n from terms t where t.status = 'active' and lang_status(t.id, u.lang) = 'draft';
-    cards := cards || jsonb_build_object('key', 'draft', 'label', case when u.role = 'validator' then 'Черновики на согласование' else 'Мои черновики ждут валидатора' end,
-      'count', n, 'link', 'work?tab=mine&status=draft');
-  end if;
-  if u.role = 'validator' then
-    select count(*) into n from requests r where r.status = 'pending' and r.type <> 'obsolete' and request_for_lang(r, u.lang);
-    cards := cards || jsonb_build_object('key', 'requests', 'label', 'Заявки моего языка', 'count', n, 'link', 'work?tab=requests');
-    select count(*) into n from requests r where r.status = 'pending' and r.type = 'obsolete' and request_for_lang(r, u.lang);
-    cards := cards || jsonb_build_object('key', 'obsolete', 'label', 'Просьбы «Устарел»', 'count', n, 'link', 'work?tab=requests');
-    select count(*) into n from translations x join terms t on t.id = x.term_id where t.status = 'active' and x.lang = u.lang and x.status = 'unchecked';
-    if n > 0 then cards := cards || jsonb_build_object('key', 'review', 'label', 'На пересмотр', 'count', n, 'link', 'work?tab=review'); end if;
-    if is_en_validator(u) then
-      select count(*) into n from (select ru_norm from terms where status = 'active' group by ru_norm having count(*) > 1) d;
-      cards := cards || jsonb_build_object('key', 'dupes', 'label', 'Одинаковые русские термины', 'count', n, 'link', 'glossary?dupes=1');
-    end if;
+  -- по каждому языку человека; если языков несколько — в подписи код языка
+  for l in select pl.lang, pl.role, lg.kind, count(*) over () as many from profile_langs pl join languages lg on lg.code = pl.lang
+            where pl.profile_id = u.id and u.role in ('translator','validator')
+            order by (pl.role = 'validator') desc, case when pl.lang = 'EN' then 0 else 1 end, lg.sort loop
+    declare sfx text := case when l.many > 1 then ' · ' || l.lang else '' end; q text := 'lang=' || l.lang || '&';
+    begin
+      if l.kind = 'full' then
+        select count(*) into n from terms t where t.status = 'active' and lang_status(t.id, l.lang) = 'need';
+        cards := cards || jsonb_build_object('key', 'need-' || l.lang, 'label', 'Нужен перевод' || sfx, 'count', n, 'link', 'work?' || q || 'tab=mine&status=need');
+      end if;
+      select count(*) into n from terms t where t.status = 'active' and lang_status(t.id, l.lang) = 'draft';
+      cards := cards || jsonb_build_object('key', 'draft-' || l.lang, 'label', case when l.role = 'validator' then 'Черновики на согласование' else 'Мои черновики ждут валидатора' end || sfx,
+        'count', n, 'link', 'work?' || q || 'tab=mine&status=draft');
+      if l.role = 'validator' then
+        select count(*) into n from requests r where r.status = 'pending' and r.type <> 'obsolete' and request_for_lang(r, l.lang);
+        cards := cards || jsonb_build_object('key', 'requests-' || l.lang, 'label', 'Заявки моего языка' || sfx, 'count', n, 'link', 'work?' || q || 'tab=requests');
+        select count(*) into n from requests r where r.status = 'pending' and r.type = 'obsolete' and request_for_lang(r, l.lang);
+        cards := cards || jsonb_build_object('key', 'obsolete-' || l.lang, 'label', 'Просьбы «Устарел»' || sfx, 'count', n, 'link', 'work?' || q || 'tab=requests');
+        select count(*) into n from translations x join terms t on t.id = x.term_id where t.status = 'active' and x.lang = l.lang and x.status = 'unchecked';
+        if n > 0 then cards := cards || jsonb_build_object('key', 'review-' || l.lang, 'label', 'На пересмотр' || sfx, 'count', n, 'link', 'work?' || q || 'tab=review'); end if;
+      end if;
+    end;
+  end loop;
+  if is_en_validator(u) then
+    select count(*) into n from (select ru_norm from terms where status = 'active' group by ru_norm having count(*) > 1) d;
+    cards := cards || jsonb_build_object('key', 'dupes', 'label', 'Одинаковые русские термины', 'count', n, 'link', 'glossary?dupes=1');
   end if;
   if u.role in ('manager','contractor','translator','validator') then
     select count(*) into n from requests r where r.author_id = u.id and r.status = 'pending';
@@ -532,7 +559,7 @@ begin
                from requests r where r.term_id = t.id and r.status = 'pending' and r.type <> 'obsolete'
                  and (u.role not in ('contractor','reader') or r.author_id = u.id)), '[]'),
     'obsolete_request', (select jsonb_build_object('id', r.id, 'code', r.code, 'reason', r.reason, 'author', author_json(u, r.author_id),
-                 'can_close', r.author_id = u.id, 'can_answer', u.role = 'validator' and request_for_lang(r, u.lang),
+                 'can_close', r.author_id = u.id, 'can_answer', validator_lang_for(u, r) is not null,
                  'answers', coalesce((select jsonb_agg(jsonb_build_object('lang', a.lang, 'answer', a.answer, 'comment', a.comment, 'author', author_json(u, a.author_id)))
                    from request_answers a where a.request_id = r.id), '[]'))
                from requests r where r.term_id = t.id and r.type = 'obsolete' and r.status = 'pending' limit 1),
@@ -726,7 +753,7 @@ create or replace function approve_request(p_request int, p_version int, p_force
 language plpgsql security definer set search_path = public as $$
 declare
   u profiles := app_profile(); r requests; t terms; v_warn text[]; v_tb text; v_term int; v text; i int; rt record;
-  v_tr text; v_status text; v_old translations; v_new translations; v_ru_only boolean := false; v_chk jsonb;
+  v_tr text; v_status text; v_old translations; v_new translations; v_ru_only boolean := false; v_chk jsonb; v_l text;
 begin
   select * into r from requests where id = p_request for update;
   if not found then perform app_error('Заявка не найдена. Обновите страницу.'); end if;
@@ -736,14 +763,15 @@ begin
   if r.type = 'obsolete' then perform app_error('На просьбу «Устарел» отвечают «Не используется» или «Оставить».'); end if;
 
   if r.type = 'new' then
-    if not request_for_lang(r, u.lang) then
+    v_l := validator_lang_for(u, r);
+    if v_l is null then
       perform app_error('Эту заявку утверждает валидатор ' || coalesce(lang_gen(r.lang), 'другого языка') || '.');
     end if;
     -- Язык заявки без валидатора: русскую часть утверждает валидатор английского, перевод — «Без проверки»
-    v_ru_only := r.lang is not null and r.lang <> u.lang and not lang_has_validator(r.lang) and is_en_validator(u);
-    select text into v_tr from request_translations where request_id = r.id and lang = u.lang;
+    v_ru_only := r.lang is not null and r.lang <> v_l and not lang_has_validator(r.lang) and is_en_validator(u);
+    select text into v_tr from request_translations where request_id = r.id and lang = v_l;
     if not v_ru_only and coalesce(v_tr, '') = '' then
-      perform app_error('Заявка ' || r.code || ': нет перевода на ' || lang_name(u.lang) || '. Впишите перевод, затем утвердите.');
+      perform app_error('Заявка ' || r.code || ': нет перевода на ' || lang_name(v_l) || '. Впишите перевод, затем утвердите.');
     end if;
     select coalesce(jsonb_object_agg(x.lang, x.text), '{}'::jsonb) into v_chk from request_translations x where x.request_id = r.id;
     v_warn := duplicate_warnings(r.ru, v_chk, null, r.id);
@@ -755,7 +783,7 @@ begin
     values (v_tb, r.ru, r.definition, r.examples, r.context, r.comment, u.id, u.id) returning id into v_term;
     insert into term_projects select v_term, p.id from projects p where p.id = any(r.project_ids);
     for rt in select * from request_translations x where x.request_id = r.id loop
-      v_status := case when rt.lang = u.lang then 'approved' when not lang_has_validator(rt.lang) then 'unchecked' else 'draft' end;
+      v_status := case when rt.lang = v_l then 'approved' when not lang_has_validator(rt.lang) then 'unchecked' else 'draft' end;
       i := 1;
       foreach v in array split_variants(rt.text) loop
         perform add_translation(v_term, rt.lang, v, v_status, rt.author_id, i);
@@ -765,7 +793,7 @@ begin
     end loop;
     if r.lang is not null and r.lang_fields <> '{}'::jsonb then perform apply_lang_fields(v_term, r.lang, r.lang_fields); end if;
     update requests set status = 'approved', term_id = v_term, decided_by = u.id, decided_at = now(), version = version + 1 where id = r.id;
-    perform log_event(u, 'Заявка утверждена — создан термин', v_tb, r.code, u.lang, null, v_tr,
+    perform log_event(u, 'Заявка утверждена — создан термин', v_tb, r.code, v_l, null, v_tr,
       '«' || r.ru || '»' || case when array_length(v_warn, 1) > 0 then '; дубли проверены: ' || array_to_string(v_warn, ' | ') else '' end);
     return jsonb_build_object('status', 'approved', 'code', r.code, 'tb', v_tb, 'message', r.code || ' → ' || v_tb || ' «' || r.ru || '»');
   end if;
@@ -818,7 +846,7 @@ begin
   if r.status <> 'pending' then perform app_error('Заявка ' || r.code || ': решение уже принято.'); end if;
   if r.version <> p_version then perform conflict_error(); end if;
   if r.type = 'obsolete' then perform app_error('Просьбу «Устарел» закрывает её автор.'); end if;
-  if not (u.role = 'validator' and request_for_lang(r, u.lang)) then
+  if validator_lang_for(u, r) is null then
     perform app_error('Отклонить эту заявку может только валидатор ' || coalesce(lang_gen(r.lang), 'языка') || '.');
   end if;
   update requests set status = 'rejected', decided_by = u.id, decided_at = now(), version = version + 1 where id = r.id;
@@ -861,7 +889,7 @@ begin
 end $$;
 
 create or replace function can_see_request(u profiles, r requests) returns boolean language sql stable as $$
-  select is_owner(u) or r.author_id = u.id or (u.role in ('translator','validator') and request_for_lang(r, u.lang))
+  select is_owner(u) or r.author_id = u.id or exists (select 1 from unnest(work_langs(u)) x where request_for_lang(r, x))
 $$;
 
 create or replace function add_request_comment(p_request int, p_body text) returns void
@@ -1078,7 +1106,7 @@ end $$;
 
 create or replace function propose_obsolete(p_term int, p_reason text) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); t terms; v_code text; v_archived boolean := false;
+declare u profiles := app_profile(); t terms; v_code text; v_archived boolean := false; v_l text;
 begin
   if u.role not in ('manager','validator') then perform app_error('Предложить «Устарел» могут менеджер и валидаторы.'); end if;
   if btrim(coalesce(p_reason, '')) = '' then perform app_error('Напишите, почему термин устарел.'); end if;
@@ -1091,25 +1119,28 @@ begin
   insert into requests(code, type, term_id, ru, reason, author_id) values (v_code, 'obsolete', t.id, t.ru, btrim(p_reason), u.id);
   perform log_event(u, 'Предложено: термин устарел', t.tb, v_code, null, null, null, btrim(p_reason));
   -- язык самого предложившего валидатора сразу помечается «Не используется»
-  if u.role = 'validator' and exists (select 1 from translations x where x.term_id = t.id and x.lang = u.lang and x.status <> 'obsolete') then
-    v_archived := (set_unused(t.id, u.lang, true)->>'archived')::boolean;
-  end if;
+  for v_l in select x from unnest(validator_langs(u)) x loop
+    if exists (select 1 from translations x where x.term_id = t.id and x.lang = v_l and x.status <> 'obsolete') then
+      v_archived := (set_unused(t.id, v_l, true)->>'archived')::boolean;
+    end if;
+  end loop;
   return jsonb_build_object('code', v_code, 'archived', v_archived);
 end $$;
 
 create or replace function answer_obsolete(p_request int, p_answer text, p_comment text default '') returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); r requests;
+declare u profiles := app_profile(); r requests; v_l text;
 begin
   select * into r from requests where id = p_request;
   if not found or r.type <> 'obsolete' or r.status <> 'pending' then perform app_error('Просьба уже закрыта. Обновите страницу.'); end if;
-  if u.role <> 'validator' then perform app_error('Отвечают на просьбу валидаторы языков.'); end if;
+  v_l := validator_lang_for(u, r);
+  if v_l is null then perform app_error('Отвечают на просьбу валидаторы языков, у которых есть перевод этого термина.'); end if;
   if p_answer = 'unused' then
-    return set_unused(r.term_id, u.lang, true);
+    return set_unused(r.term_id, v_l, true);
   elsif p_answer = 'keep' then
-    insert into request_answers(request_id, lang, answer, comment, author_id) values (r.id, u.lang, 'keep', btrim(coalesce(p_comment, '')), u.id)
+    insert into request_answers(request_id, lang, answer, comment, author_id) values (r.id, v_l, 'keep', btrim(coalesce(p_comment, '')), u.id)
     on conflict (request_id, lang) do update set answer = 'keep', comment = excluded.comment, author_id = u.id, at = now();
-    perform log_event(u, 'Ответ на «Устарел»: оставить', (select tb from terms where id = r.term_id), r.code, u.lang, null, null, nullif(btrim(coalesce(p_comment, '')), ''));
+    perform log_event(u, 'Ответ на «Устарел»: оставить', (select tb from terms where id = r.term_id), r.code, v_l, null, null, nullif(btrim(coalesce(p_comment, '')), ''));
     return jsonb_build_object('archived', false);
   end if;
   perform app_error('Неизвестный ответ.');
@@ -1383,7 +1414,7 @@ begin
   v_all := is_owner(u) or is_en_validator(u);
   with base as (
     select * from audit_log a
-     where (v_all or a.lang = u.lang or (a.lang is null and a.tb is not null))
+     where (v_all or a.lang = any(work_langs(u)) or (a.lang is null and a.tb is not null))
        and (nullif(p_f->>'from', '') is null or a.at >= (p_f->>'from')::date)
        and (nullif(p_f->>'to', '') is null or a.at < (p_f->>'to')::date + 1)
        and (nullif(p_f->>'user_id', '') is null or a.user_id = (p_f->>'user_id')::int)
@@ -1494,44 +1525,90 @@ declare u profiles := app_profile();
 begin
   perform require_owner(u);
   return coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'email', p.email, 'name', p.name, 'role', p.role, 'role_label', role_label(p.role),
-      'lang', p.lang, 'contractor_no', p.contractor_no, 'avatar', p.avatar, 'active', p.active, 'last_seen', p.last_seen, 'joined', p.user_id is not null)
+      'lang', p.lang, 'langs', coalesce((select jsonb_agg(jsonb_build_object('code', pl.lang, 'role', pl.role) order by (pl.role = 'validator') desc, pl.lang)
+                                         from profile_langs pl where pl.profile_id = p.id), '[]'),
+      'contractor_no', p.contractor_no, 'avatar', p.avatar, 'active', p.active, 'last_seen', p.last_seen, 'joined', p.user_id is not null)
       order by p.active desc, p.role, p.name) from profiles p), '[]');
 end $$;
 
-create or replace function admin_create_user(p_email text, p_name text, p_role text, p_lang text default null) returns int
+-- Языки переводчика/валидатора: [{"lang": "UZ", "role": "validator"}, {"lang": "KY", "role": "translator"}].
+-- Записывает profile_langs и сводку в profiles (role — «валидатор», если хоть где-то валидатор; lang — основной язык).
+create or replace function set_profile_langs(p_id int, p_langs jsonb) returns text language plpgsql as $$
+declare x jsonb; v_lang text; v_role text; v_main text; v_sum text; v_seen text[] := '{}'; v_desc text := '';
+begin
+  if p_langs is null or jsonb_typeof(p_langs) <> 'array' or jsonb_array_length(p_langs) = 0 then
+    perform app_error('Переводчику и валидатору нужно выбрать хотя бы один язык.');
+  end if;
+  delete from profile_langs where profile_id = p_id;
+  for x in select * from jsonb_array_elements(p_langs) loop
+    v_lang := upper(btrim(coalesce(x->>'lang', '')));
+    v_role := coalesce(x->>'role', 'translator');
+    if v_lang = '' then perform app_error('Переводчику и валидатору нужно выбрать язык.'); end if;
+    if v_role not in ('translator','validator') then perform app_error('Роль на языке: переводчик или валидатор.'); end if;
+    if not exists (select 1 from languages where code = v_lang) then perform app_error('Такого языка нет: ' || v_lang || '.'); end if;
+    if v_lang = any(v_seen) then perform app_error('Язык ' || v_lang || ' указан дважды.'); end if;
+    if v_role = 'validator' and exists (select 1 from profile_langs pl join profiles p on p.id = pl.profile_id
+                                         where pl.lang = v_lang and pl.role = 'validator' and p.active and pl.profile_id <> p_id) then
+      perform app_error('У языка ' || lang_name(v_lang) || ' уже есть валидатор.');
+    end if;
+    insert into profile_langs(profile_id, lang, role) values (p_id, v_lang, v_role);
+    v_seen := v_seen || v_lang;
+    v_desc := v_desc || case when v_desc = '' then '' else ', ' end || case when v_role = 'validator' then 'валидатор ' else 'переводчик ' end || v_lang;
+  end loop;
+  select pl.lang into v_main from profile_langs pl join languages l on l.code = pl.lang where pl.profile_id = p_id
+   order by (pl.role = 'validator') desc, case when pl.lang = 'EN' then 0 else 1 end, l.sort limit 1;
+  v_sum := case when exists (select 1 from profile_langs where profile_id = p_id and role = 'validator') then 'validator' else 'translator' end;
+  update profiles set role = v_sum, lang = v_main where id = p_id;
+  return v_desc;
+end $$;
+
+create or replace function admin_create_user(p_email text, p_name text, p_role text, p_lang text default null, p_langs jsonb default null) returns int
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); v_email text := lower(btrim(coalesce(p_email, ''))); v_lang text; v_id int;
+declare u profiles := app_profile(); v_email text := lower(btrim(coalesce(p_email, ''))); v_id int; v_desc text := '';
 begin
   perform require_owner(u);
   if v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then perform app_error('Проверьте адрес почты.'); end if;
-  v_lang := check_role_lang(p_role, p_lang);
+  if p_role not in ('owner','validator','manager','translator','contractor','reader') then perform app_error('Неизвестная роль.'); end if;
   if exists (select 1 from profiles where lower(email) = v_email) then perform app_error('Человек с такой почтой уже есть.'); end if;
-  if p_role = 'validator' and lang_has_validator(v_lang) then perform app_error('У языка ' || lang_name(v_lang) || ' уже есть валидатор.'); end if;
-  insert into profiles(email, name, role, lang, contractor_no)
-  values (v_email, coalesce(nullif(btrim(p_name), ''), v_email), p_role, v_lang,
-          case when p_role = 'contractor' then (select coalesce(max(contractor_no), 0) + 1 from profiles) end)
-  returning id into v_id;
-  perform log_event(u, 'Добавлен пользователь', null, null, v_lang, null, coalesce(nullif(btrim(p_name), ''), v_email) || ' <' || v_email || '>, ' || role_label(p_role));
+  if p_role in ('translator','validator') then
+    -- временно ставим язык, чтобы выполнить правило «у переводчика есть язык»; дальше — set_profile_langs
+    insert into profiles(email, name, role, lang) values (v_email, coalesce(nullif(btrim(p_name), ''), v_email), 'translator',
+      (select code from languages order by sort limit 1)) returning id into v_id;
+    v_desc := set_profile_langs(v_id, coalesce(p_langs, jsonb_build_array(jsonb_build_object('lang', p_lang, 'role', p_role))));
+  else
+    insert into profiles(email, name, role, lang, contractor_no)
+    values (v_email, coalesce(nullif(btrim(p_name), ''), v_email), p_role, null,
+            case when p_role = 'contractor' then (select coalesce(max(contractor_no), 0) + 1 from profiles) end)
+    returning id into v_id;
+  end if;
+  perform log_event(u, 'Добавлен пользователь', null, null, null, null,
+    coalesce(nullif(btrim(p_name), ''), v_email) || ' <' || v_email || '>, ' || case when v_desc <> '' then v_desc else role_label(p_role) end);
   return v_id;
 end $$;
 
-create or replace function admin_update_user(p_user int, p_name text, p_role text, p_lang text default null) returns void
+create or replace function admin_update_user(p_user int, p_name text, p_role text, p_lang text default null, p_langs jsonb default null) returns void
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); o profiles; v_lang text;
+declare u profiles := app_profile(); o profiles; v_before text; v_desc text := '';
 begin
   perform require_owner(u);
   select * into o from profiles where id = p_user;
   if not found then perform app_error('Пользователь не найден.'); end if;
   if o.id = u.id and p_role <> 'owner' then perform app_error('Нельзя снять роль владельца с самого себя.'); end if;
-  v_lang := check_role_lang(p_role, p_lang);
-  if p_role = 'validator' and exists (select 1 from profiles v where v.role = 'validator' and v.lang = v_lang and v.active and v.id <> o.id) then
-    perform app_error('У языка ' || lang_name(v_lang) || ' уже есть валидатор.');
+  if p_role not in ('owner','validator','manager','translator','contractor','reader') then perform app_error('Неизвестная роль.'); end if;
+  v_before := o.name || ', ' || coalesce((select string_agg(case when role = 'validator' then 'валидатор ' else 'переводчик ' end || lang, ', ' order by lang)
+                                            from profile_langs where profile_id = o.id), role_label(o.role));
+  update profiles set name = coalesce(nullif(btrim(p_name), ''), o.name) where id = o.id;
+  if p_role in ('translator','validator') then
+    if o.role not in ('translator','validator') then update profiles set role = 'translator', lang = (select code from languages order by sort limit 1) where id = o.id; end if;
+    v_desc := set_profile_langs(o.id, coalesce(p_langs, jsonb_build_array(jsonb_build_object('lang', p_lang, 'role', p_role))));
+  else
+    delete from profile_langs where profile_id = o.id;
+    update profiles set role = p_role, lang = null,
+      contractor_no = case when p_role = 'contractor' then coalesce(o.contractor_no, (select coalesce(max(contractor_no), 0) + 1 from profiles)) else o.contractor_no end
+    where id = o.id;
   end if;
-  update profiles set name = coalesce(nullif(btrim(p_name), ''), o.name), role = p_role, lang = v_lang,
-    contractor_no = case when p_role = 'contractor' then coalesce(o.contractor_no, (select coalesce(max(contractor_no), 0) + 1 from profiles)) else o.contractor_no end
-  where id = o.id;
-  perform log_event(u, 'Изменён пользователь', null, null, v_lang, o.name || ', ' || role_label(o.role) || coalesce(' ' || o.lang, ''),
-    coalesce(nullif(btrim(p_name), ''), o.name) || ', ' || role_label(p_role) || coalesce(' ' || v_lang, ''), o.email);
+  perform log_event(u, 'Изменён пользователь', null, null, null, v_before,
+    coalesce(nullif(btrim(p_name), ''), o.name) || ', ' || case when v_desc <> '' then v_desc else role_label(p_role) end, o.email);
 end $$;
 
 create or replace function admin_set_active(p_user int, p_active boolean) returns void
@@ -1542,8 +1619,10 @@ begin
   if p_user = u.id then perform app_error('Нельзя отключить самого себя.'); end if;
   select * into o from profiles where id = p_user;
   if not found then perform app_error('Пользователь не найден.'); end if;
-  if p_active and o.role = 'validator' and exists (select 1 from profiles v where v.role = 'validator' and v.lang = o.lang and v.active and v.id <> o.id) then
-    perform app_error('У языка ' || lang_name(o.lang) || ' уже есть другой валидатор.');
+  if p_active and exists (select 1 from profile_langs mine join profile_langs other on other.lang = mine.lang and other.role = 'validator' and other.profile_id <> mine.profile_id
+                          join profiles v on v.id = other.profile_id and v.active
+                          where mine.profile_id = o.id and mine.role = 'validator') then
+    perform app_error('У одного из языков этого человека уже есть другой валидатор. Сначала поменяйте языки.');
   end if;
   update profiles set active = p_active where id = o.id;
   perform log_event(u, case when p_active then 'Пользователь включён' else 'Пользователь отключён' end, null, null, null, null, null, o.name || ' <' || o.email || '>');
@@ -1555,7 +1634,7 @@ declare u profiles := app_profile();
 begin
   perform require_owner(u);
   return coalesce((select jsonb_agg(jsonb_build_object('code', l.code, 'name', l.name, 'smartcat', l.smartcat_code, 'kind', l.kind, 'active', l.active,
-      'validator', (select v.name from profiles v where v.role = 'validator' and v.lang = l.code and v.active limit 1),
+      'validator', (select v.name from profile_langs pl join profiles v on v.id = pl.profile_id where pl.lang = l.code and pl.role = 'validator' and v.active limit 1),
       'unchecked', (select count(*) from translations x join terms t on t.id = x.term_id where t.status = 'active' and x.lang = l.code and x.status = 'unchecked'))
     order by case when l.code = 'EN' then 0 else 1 end, l.sort, l.code) from languages l), '[]');
 end $$;
@@ -1648,7 +1727,7 @@ begin
     'merge_terms(integer, integer, jsonb)', 'add_term_comment(integer, text)', 'hide_term_comment(integer)',
     'work_page(text, text, text, integer, text, integer, integer)', 'archive_lists(text)', 'log_page(jsonb, integer, integer)',
     'export_data(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',
-    'admin_users()', 'admin_create_user(text, text, text, text)', 'admin_update_user(integer, text, text, text)', 'admin_set_active(integer, boolean)',
+    'admin_users()', 'admin_create_user(text, text, text, text, jsonb)', 'admin_update_user(integer, text, text, text, jsonb)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
     'admin_add_project(text)', 'admin_update_project(integer, text, boolean)',
     'submit_feedback(text, text, text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'

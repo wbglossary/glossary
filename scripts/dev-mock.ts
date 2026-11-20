@@ -45,14 +45,15 @@ if (file) {
 }
 await pg.query(`insert into projects(name) values ('ПВЗ'),('такси') on conflict do nothing`);
 // тестовые валидаторы заменяют перенесённых (у языка один валидатор)
-await pg.query(`update profiles set active = false where role = 'validator' and lang in ('EN','KA')`);
+await pg.query(`update profiles set active = false where role = 'validator' and lang in ('EN','KA','UZ')`);
 
 const USERS: Record<string, { email: string; name: string; role: string; lang: string | null; uid: string }> = {};
 const TEST: [string, string, string, string | null][] = [
   ['owner', 'Владелец Тест', 'owner', null], ['man', 'Менеджер Тест', 'manager', null],
   ['ven', 'Валидатор EN', 'validator', 'EN'], ['en', 'Переводчик EN', 'translator', 'EN'],
   ['vka', 'Валидатор KA', 'validator', 'KA'], ['ka', 'Переводчик KA', 'translator', 'KA'],
-  ['con', 'Подрядчик Тест', 'contractor', null], ['reader', 'Читатель Тест', 'reader', null]
+  ['con', 'Подрядчик Тест', 'contractor', null], ['reader', 'Читатель Тест', 'reader', null],
+  ['mix', 'Валидатор UZ, переводчик KY', 'validator', 'UZ']
 ];
 for (const [key, name, role, lang] of TEST) {
   const email = `${key}@test.local`;
@@ -63,6 +64,8 @@ for (const [key, name, role, lang] of TEST) {
   await pg.query(`insert into auth.users(id, email) values ($1,$2)`, [uid, email]);
   USERS[key] = { email, name, role, lang, uid };
 }
+// второй язык со своей ролью у тестового «mix» (если в базе есть KY)
+await pg.query(`insert into profile_langs(profile_id, lang, role) select id, 'KY', 'translator' from profiles where email = 'mix@test.local' and exists (select 1 from languages where code = 'KY') on conflict do nothing`).catch(() => null);
 
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const token = (key: string) => `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ sub: USERS[key].uid, email: USERS[key].email, role: 'authenticated', exp: 4102444800 })}.sig`;

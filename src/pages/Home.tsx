@@ -16,7 +16,7 @@ export function HomePage({ me }: PageProps) {
   const langs = (me.prefs.langs?.length ? me.prefs.langs : me.languages.filter((l) => l.active).map((l) => l.code));
   const cols = (me.prefs.cols ?? DEFAULT_COLS).filter((c): c is FieldCol => FIELD_COLS.some((f) => f.key === c));
   // В «Недавно добавленных» — русский и язык человека; у кого языка нет — языки из «Столбцы…» (или английский)
-  const recentLangs = me.lang ? [me.lang] : me.prefs.langs?.length ? me.prefs.langs : ['EN'];
+  const recentLangs = me.langs.length ? me.langs.map((l) => l.code) : me.prefs.langs?.length ? me.prefs.langs : ['EN'];
   const kind = (c: string) => me.languages.find((l) => l.code === c)?.kind ?? 'full';
   const cards = dash.data ?? [];
   const allDone = cards.length > 0 && cards.every((c) => c.count === 0);

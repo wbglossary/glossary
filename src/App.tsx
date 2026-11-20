@@ -111,7 +111,9 @@ export function App() {
         <header className="top">
           <div className="who">
             <button className="btn link" title="Выбрать аватар" onClick={() => setAvatarOpen(true)}><Avatar name={me.avatar} size={30} /></button>
-            <span><b>{me.name}</b> · {ROLE_LABELS[me.role]}{langName ? ` (${langName})` : ''}{me.role === 'contractor' ? ` ${me.contractor_no}` : ''}</span>
+            <span><b>{me.name}</b> · {me.langs.length > 1
+              ? me.langs.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ')
+              : <>{ROLE_LABELS[me.role]}{langName ? ` (${langName})` : ''}</>}{me.role === 'contractor' ? ` ${me.contractor_no}` : ''}</span>
             <Button small kind="link" onClick={() => supabase.auth.signOut()}>Выйти</Button>
           </div>
         </header>

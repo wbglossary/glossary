@@ -387,9 +387,9 @@ test('архив вручную и удаление — только владе�
 
 test('счётчик «Вас ждут»', async () => {
   const d = await call('tka', 'dashboard');
-  assert.ok(d.some((c: any) => c.key === 'need'));
+  assert.ok(d.some((c: any) => c.key.startsWith('need')));
   const v = await call('vka', 'dashboard');
-  assert.ok(v.some((c: any) => c.key === 'requests') && v.some((c: any) => c.key === 'obsolete'));
+  assert.ok(v.some((c: any) => c.key.startsWith('requests')) && v.some((c: any) => c.key.startsWith('obsolete')));
   const o = await call('owner', 'dashboard');
   assert.ok(o.some((c: any) => c.key === 'novalidator'));
   const c = await call('c1', 'dashboard');
@@ -418,6 +418,39 @@ test('администрирование: один валидатор на яз�
   assert.equal(lang(await card('TB-00001'), 'FR').status, 'need');
   const langs = await call('owner', 'admin_languages');
   assert.equal(langs.find((l: any) => l.code === 'KA').validator, 'vka');
+});
+
+test('один человек: валидатор одного языка и переводчик другого', async () => {
+  await call('owner', 'admin_create_user', { p_email: 'mix@x.ru', p_name: 'mix', p_role: 'validator',
+    p_langs: [{ lang: 'UZ', role: 'validator' }, { lang: 'KY', role: 'translator' }] }).catch(async (e: Error) => {
+      // UZ/KY может не быть в тестовой базе — добавим
+      if (!/Такого языка нет/.test(e.message)) throw e;
+      for (const [c, n] of [['UZ', 'узбекский'], ['KY', 'киргизский']]) await call('owner', 'admin_add_language', { p_code: c, p_name: n, p_smartcat: c.toLowerCase(), p_kind: 'full' }).catch(() => null);
+      await call('owner', 'admin_create_user', { p_email: 'mix@x.ru', p_name: 'mix', p_role: 'validator', p_langs: [{ lang: 'UZ', role: 'validator' }, { lang: 'KY', role: 'translator' }] });
+    });
+  U.mix = { id: 0, uid: randomUUID() };
+  await sql(`insert into auth.users(id, email) values ($1, 'mix@x.ru')`, [U.mix.uid]);
+  const me = await call('mix', 'me');
+  assert.deepEqual(me.langs.map((l: any) => `${l.role}:${l.code}`), ['validator:UZ', 'translator:KY']);
+  assert.equal(me.role, 'validator');
+  const id = (await gl('TB-00001')).items[0].id;
+  let c = await call('owner', 'term_card', { p_id: id });
+  // KY: переводчик — пишет черновик, согласовать не может
+  const ky = await call('mix', 'set_cell_text', { p_term: id, p_lang: 'KY', p_text: 'QR-код KY', p_version: c.version });
+  assert.equal(ky.status, 'draft');
+  await fails(call('mix', 'set_lang_approval', { p_items: [{ id, version: ky.version }], p_lang: 'KY', p_approve: true }), /валидатор/);
+  // UZ: валидатор — вписывает и сам согласует
+  c = await call('owner', 'term_card', { p_id: id });
+  const uz = await call('mix', 'set_cell_text', { p_term: id, p_lang: 'UZ', p_text: 'QR-kod', p_version: c.version });
+  await call('mix', 'set_lang_approval', { p_items: [{ id, version: uz.version }], p_lang: 'UZ', p_approve: true });
+  assert.equal(lang(await card('TB-00001'), 'UZ').status, 'approved');
+  // счётчики по каждому языку
+  const d = await call('mix', 'dashboard');
+  assert.ok(d.some((x: any) => x.key === 'requests-UZ') && !d.some((x: any) => x.key === 'requests-KY'));
+  // второй валидатор UZ не пройдёт
+  await fails(call('owner', 'admin_create_user', { p_email: 'uz2@x.ru', p_name: 'uz2', p_role: 'validator', p_lang: 'UZ' }), /уже есть валидатор/);
+  // у языка UZ виден валидатор
+  assert.equal((await call('owner', 'admin_languages')).find((l: any) => l.code === 'UZ').validator, 'mix');
 });
 
 test('черновик: исправление одного дефиса сохраняется', async () => {

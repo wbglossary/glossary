@@ -85,7 +85,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
               {(() => {
                 // Пустые языки (перевода нет, полей нет) сворачиваются в одну строку; свой язык всегда виден.
                 const isEmpty = (l: TermLang) => !l.live.length && !l.unused && !l.history.length && !l.draft
-                  && !l.definition && !l.examples && !l.context && !l.forbidden.length && l.code !== me.lang;
+                  && !l.definition && !l.examples && !l.context && !l.forbidden.length && !me.langs.some((x) => x.code === l.code);
                 const empty = c.langs.filter(isEmpty);
                 const shown = showEmpty ? c.langs : c.langs.filter((l) => !isEmpty(l));
                 const block = (l: TermLang) => (
@@ -107,7 +107,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                         <span style={{ flex: 1 }} />
                         {l.can.edit && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'edit', lang: l, current: t })}>Изменить</Button> : null}
                         {l.can.request && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
-                        {!l.can.edit && !l.can.request && l.can.type && t.status === 'approved' && me.role === 'translator' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
+                        {!l.can.edit && !l.can.request && l.can.type && t.status === 'approved' && me.langs.some((x) => x.code === l.code && x.role === 'translator') ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
                       </div>
                     )) : <div className="muted small" style={{ marginTop: 6 }}>Перевода нет</div>}
                     {c.status === 'active' && !l.unused ? (

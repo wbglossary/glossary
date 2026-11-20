@@ -51,8 +51,35 @@ create table profiles (
   last_seen     timestamptz,
   check ((role in ('translator','validator')) = (lang is not null))
 );
+-- Языки человека и роль на каждом: например, «валидатор UZ» и «переводчик KY».
+-- profiles.role/lang для переводчиков и валидаторов — сводка: «валидатор», если хоть на одном языке валидатор; lang — основной язык.
+create table profile_langs (
+  profile_id int  not null references profiles(id) on delete cascade,
+  lang       text not null references languages(code),
+  role       text not null check (role in ('translator','validator')),
+  primary key (profile_id, lang)
+);
 -- У языка один действующий валидатор
-create unique index one_validator_per_lang on profiles (lang) where role = 'validator' and active;
+create or replace function profile_langs_one_validator() returns trigger language plpgsql as $$
+begin
+  if new.role = 'validator' and exists (
+       select 1 from profile_langs pl join profiles p on p.id = pl.profile_id
+        where pl.lang = new.lang and pl.role = 'validator' and p.active and pl.profile_id <> new.profile_id) then
+    raise exception 'У языка % уже есть валидатор', new.lang using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+create trigger profile_langs_one_validator before insert or update on profile_langs for each row execute function profile_langs_one_validator();
+-- Совместимость: если человека добавили по-старому (одна роль, один язык), его язык записывается в profile_langs сам
+create or replace function profiles_sync_langs() returns trigger language plpgsql as $$
+begin
+  if new.role in ('translator','validator') and new.lang is not null
+     and not exists (select 1 from profile_langs where profile_id = new.id) then
+    insert into profile_langs(profile_id, lang, role) values (new.id, new.lang, new.role);
+  end if;
+  return null;
+end $$;
+create trigger profiles_sync_langs after insert or update of role, lang on profiles for each row execute function profiles_sync_langs();
 
 create table settings (key text primary key, value text not null);
 insert into settings(key, value) values ('ru_smartcat_code', 'ru-RU');
@@ -251,7 +278,7 @@ create index feedback_status on feedback (status, created_at desc);
 do $$
 declare t text;
 begin
-  foreach t in array array['languages','projects','profiles','settings','terms','retired_tb','term_projects','term_langs',
+  foreach t in array array['languages','projects','profiles','profile_langs','settings','terms','retired_tb','term_projects','term_langs',
     'translations','requests','request_translations','request_answers','request_comments','term_comments','audit_log','exports','feedback'] loop
     execute format('alter table %I enable row level security', t);
   end loop;
