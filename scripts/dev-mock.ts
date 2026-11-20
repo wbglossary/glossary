@@ -77,6 +77,20 @@ if (!file) {
   await pg.query(`insert into term_langs(term_id, lang, comment, forbidden) values (1,'EN','В интерфейсе — только Cart, не Basket.','[{"text":"Basket","note":"британский вариант"}]')`);
   await pg.query(`insert into term_langs(term_id, lang, optional) values (2,'KA',true)`);
   await pg.query(`insert into term_projects values (2, 1)`);
+  // ещё немного терминов для картинок в инструкции
+  const more: [string, string, string, string | null, string | null][] = [
+    ['Личный кабинет', 'Раздел, где покупатель видит свои заказы и данные.', 'Войдите в личный кабинет', 'Personal account', 'პირადი კაბინეტი'],
+    ['Скидка', 'Уменьшение цены товара.', 'Скидка 20% на всё', 'Discount', 'ფასდაკლება'],
+    ['Доставка', 'Привоз заказа покупателю.', 'Бесплатная доставка', 'Delivery', null],
+    ['Отзыв', 'Мнение покупателя о товаре.', 'Оставьте отзыв', 'Review', null],
+    ['Избранное', 'Список товаров, которые покупатель отметил сердечком.', 'Добавить в избранное', null, null],
+    ['Промокод', 'Код, который даёт скидку при оплате.', 'Введите промокод', null, null]
+  ];
+  for (const [ru, d, ex, en, ka] of more) {
+    const [{ id }] = (await pg.query<{ id: number }>(`insert into terms(tb, ru, definition, examples) values ('TB-' || lpad(nextval('tb_seq')::text, 5, '0'), $1, $2, $3) returning id`, [ru, d, ex])).rows;
+    if (en) await pg.query(`insert into translations(term_id, lang, text, status) values ($1, 'EN', $2, $3)`, [id, en, ru === 'Отзыв' ? 'draft' : 'approved']);
+    if (ka) await pg.query(`insert into translations(term_id, lang, text, status) values ($1, 'KA', $2, 'approved')`, [id, ka]);
+  }
 }
 // второй язык со своей ролью у тестового «mix» (если в базе есть KY)
 await pg.query(`insert into profile_langs(profile_id, lang, role) select id, 'KY', 'translator' from profiles where email = 'mix@test.local' and exists (select 1 from languages where code = 'KY') on conflict do nothing`).catch(() => null);
