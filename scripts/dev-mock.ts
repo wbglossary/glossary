@@ -70,8 +70,9 @@ if (!file) {
   await pg.query(`insert into terms(tb, ru, definition, examples, comment) values
     ('TB-00001', 'Корзина', 'Раздел приложения, куда покупатель складывает товары перед оформлением заказа.', 'Добавить в корзину; Перейти в корзину', ''),
     ('TB-00002', 'Пункт выдачи заказов', 'Место, где покупатель забирает заказ.', 'Заберите заказ в пункте выдачи', 'Сокращение — ПВЗ'),
-    ('TB-00003', 'Возврат', 'Отказ покупателя от товара после получения.', 'Оформить возврат', '')`);
-  await pg.query(`select setval('tb_seq', 3)`);
+    ('TB-00003', 'Возврат', 'Отказ покупателя от товара после получения.', 'Оформить возврат', ''),
+    ('TB-00004', 'Возврат', 'Деньги, которые покупатель получает обратно на карту.', '', '')`);
+  await pg.query(`select setval('tb_seq', 4)`);
   await pg.query(`insert into translations(term_id, lang, text, status) values (1,'EN','Cart','approved'),(1,'KA','კალათა','approved'),(2,'EN','Pick-up point','approved'),(3,'EN','Return','draft')`);
   await pg.query(`insert into term_langs(term_id, lang, comment, forbidden) values (1,'EN','В интерфейсе — только Cart, не Basket.','[{"text":"Basket","note":"британский вариант"}]')`);
   await pg.query(`insert into term_langs(term_id, lang, optional) values (2,'KA',true)`);

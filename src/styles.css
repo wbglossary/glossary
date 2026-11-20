@@ -379,3 +379,7 @@ td.c-unused { background: #f6f6f8; color: var(--muted); }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 .import-page > .card, .import-page > p, .import-page > ol { max-width: 860px; }
+.colroles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.colroles label { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+.colroles label.on { border-color: var(--accent); background: var(--card, #fff); }
+.colroles label > span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

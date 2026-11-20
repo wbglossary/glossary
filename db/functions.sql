@@ -1758,55 +1758,84 @@ begin
 end $$;
 
 -- =====================================================================
--- API: загрузка готовых переводов подрядчика (сокращённые языки и языки без валидатора)
--- p_rows: [{"tb": "TB-00012", "ru": "...", "text": "..."}]. Сначала p_apply=false — показать,
--- что с чем совпало; потом p_apply=true — добавить переводы со статусом «Без проверки».
+-- API: загрузка готовых переводов от подрядчиков — одна таблица, сколько угодно языков.
+-- p_rows: [{"tb": "", "ru": "Корзина", "definition": "...", "tr": {"KY": "...", "AM": "..."}}]
+-- Термин ищется по номеру TB (если есть), иначе по русскому термину; если русских терминов
+-- несколько — по определению. Язык без валидатора и сокращённый — «Без проверки»,
+-- язык с валидатором — «Черновик» (его согласует валидатор). Уже существующие переводы не трогаем.
+-- Сначала p_apply=false — показать, что с чем совпало; потом p_apply=true — записать.
 -- =====================================================================
-create or replace function import_translations(p_lang text, p_rows jsonb, p_apply boolean default false) returns jsonb
+drop function if exists import_translations(text, jsonb, boolean);
+
+-- Какой из терминов с одинаковым русским подходит по определению (null — не понять)
+create or replace function pick_by_definition(p_ids int[], p_def text) returns int language sql stable as $$
+  with c as (
+    select t.id, case
+        when norm_term(t.definition) = norm_term(p_def) then 1.0
+        when norm_term(t.definition) <> '' and (norm_term(t.definition) like '%' || norm_term(p_def) || '%'
+             or norm_term(p_def) like '%' || norm_term(t.definition) || '%') then 0.9
+        else similarity(norm_term(t.definition), norm_term(p_def)) end as s
+    from terms t where t.id = any(p_ids)
+  ), r as (select id, s, row_number() over (order by s desc) n, lead(s) over (order by s desc) nx from c)
+  select id from r where n = 1 and s >= 0.3 and (nx is null or s - nx >= 0.1)
+$$;
+
+create or replace function import_translations(p_rows jsonb, p_apply boolean default false) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); e jsonb; i int := 0; v_tb text; v_ru text; v_text text; v_term int; v_n int;
-  v_st text; v_cur text; outv jsonb := '[]'; v_add int := 0; t terms; v text; k int;
+declare u profiles := app_profile(); e jsonb; i int := 0; v_tb text; v_ru text; v_def text; v_term int; v_ids int[];
+  v_match text; v_lang text; v_text text; v_cur text; v_st text; v_lst jsonb; outv jsonb := '[]'; v_add int := 0;
+  v text; k int; v_status text; t terms; v_cands jsonb;
 begin
   if u.role not in ('manager','owner') then perform app_error('Загружать переводы подрядчиков могут менеджер и владелец.'); end if;
-  if not exists (select 1 from languages l where l.code = p_lang and l.active and (l.kind = 'short' or not lang_has_validator(l.code))) then
-    perform app_error('Загружать можно только на сокращённые языки и языки без валидатора. У ' || lang_gen(p_lang) || ' переводы ведёт валидатор.');
-  end if;
-  if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then perform app_error('В файле нет строк.'); end if;
-  if jsonb_array_length(p_rows) > 5000 then perform app_error('Слишком много строк за раз (больше 5000). Разделите файл.'); end if;
+  if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then perform app_error('В таблице нет строк.'); end if;
+  if jsonb_array_length(p_rows) > 5000 then perform app_error('Слишком много строк за раз (больше 5000). Разделите таблицу.'); end if;
   for e in select * from jsonb_array_elements(p_rows) loop
-    i := i + 1;
-    v_tb := upper(btrim(coalesce(e->>'tb', ''))); v_ru := btrim(coalesce(e->>'ru', '')); v_text := btrim(coalesce(e->>'text', ''));
-    v_term := null; v_cur := null;
-    if v_tb ~ '^TB-\d+$' then
-      select id into v_term from terms where tb = v_tb and status = 'active';
-    end if;
+    i := i + 1; v_term := null; v_cands := null;
+    v_tb := upper(btrim(coalesce(e->>'tb', ''))); v_ru := btrim(coalesce(e->>'ru', '')); v_def := btrim(coalesce(e->>'definition', ''));
+    if v_tb ~ '^TB-\d+$' then select id into v_term from terms where tb = v_tb and status = 'active'; end if;
     if v_term is null and v_ru <> '' then
-      select count(*), min(id) into v_n, v_term from terms where ru_norm = norm_term(v_ru) and status = 'active';
-      if v_n > 1 then v_term := null; v_st := 'ambiguous'; end if;
+      v_ids := array(select id from terms where ru_norm = norm_term(v_ru) and status = 'active' order by tb);
+      if cardinality(v_ids) = 1 then v_term := v_ids[1];
+      elsif cardinality(v_ids) > 1 then
+        if v_def <> '' then v_term := pick_by_definition(v_ids, v_def); end if;
+        if v_term is null then
+          select jsonb_agg(jsonb_build_object('tb', tb, 'definition', definition) order by tb) into v_cands from terms where id = any(v_ids);
+        end if;
+      end if;
     end if;
-    if v_text = '' then v_st := 'empty';
-    elsif v_term is null then v_st := coalesce(case when v_st = 'ambiguous' then v_st end, 'not_found');
-    else
-      select string_agg(x.text, '; ' order by x.sort, x.id) into v_cur from translations x
-       where x.term_id = v_term and x.lang = p_lang and x.status <> 'obsolete';
-      if v_cur is null then v_st := 'add';
-      elsif exists (select 1 from translations x where x.term_id = v_term and x.lang = p_lang and x.status <> 'obsolete' and x.text_norm = norm_term(v_text))
-        then v_st := 'same';
-      else v_st := 'differs'; end if;
-    end if;
-    if p_apply and v_st = 'add' then
-      select * into t from terms where id = v_term for update;
-      k := 1;
-      foreach v in array split_variants(v_text) loop
-        perform add_translation(t.id, p_lang, v, 'unchecked', u.id, k); k := k + 1;
-      end loop;
-      perform log_event(u, 'Загружен перевод подрядчика', t.tb, null, p_lang, null, v_text, 'Без проверки');
-      perform bump_term(t.id, u.id);
-      v_add := v_add + 1;
-    end if;
-    outv := outv || jsonb_build_object('row', i, 'tb', (select tb from terms where id = v_term), 'ru', coalesce((select ru from terms where id = v_term), v_ru),
-      'text', v_text, 'current', v_cur, 'status', v_st);
-    v_st := null;
+    v_match := case when v_term is not null then 'ok' when v_cands is not null then 'ambiguous' else 'not_found' end;
+    v_lst := '{}';
+    for v_lang, v_text in select key, btrim(value) from jsonb_each_text(coalesce(e->'tr', '{}')) loop
+      v_lang := upper(v_lang);
+      if v_text = '' then continue; end if;
+      if not exists (select 1 from languages l where l.code = v_lang and l.active) then v_st := 'no_lang';
+      elsif v_term is null then v_st := 'skip';
+      else
+        select string_agg(x.text, '; ' order by x.sort, x.id) into v_cur from translations x
+         where x.term_id = v_term and x.lang = v_lang and x.status <> 'obsolete';
+        if v_cur is null then v_st := 'add';
+        elsif exists (select 1 from translations x where x.term_id = v_term and x.lang = v_lang and x.status <> 'obsolete' and x.text_norm = norm_term(v_text))
+          then v_st := 'same';
+        else v_st := 'differs'; end if;
+      end if;
+      v_status := case when lang_has_validator(v_lang) and coalesce((select kind from languages where code = v_lang), 'full') = 'full' then 'draft' else 'unchecked' end;
+      if p_apply and v_st = 'add' then
+        select * into t from terms where id = v_term for update;
+        k := 1;
+        foreach v in array split_variants(v_text) loop
+          perform add_translation(t.id, v_lang, v, v_status, u.id, k); k := k + 1;
+        end loop;
+        perform log_event(u, 'Загружен перевод подрядчика', t.tb, null, v_lang, null, v_text, case when v_status = 'draft' then 'Черновик' else 'Без проверки' end);
+        perform bump_term(t.id, u.id);
+        v_add := v_add + 1;
+      end if;
+      v_lst := v_lst || jsonb_build_object(v_lang, jsonb_build_object('text', v_text, 'current', case when v_term is not null then v_cur end,
+        'status', v_st, 'as', v_status));
+      v_cur := null;
+    end loop;
+    outv := outv || jsonb_build_object('row', i, 'match', v_match, 'tb', (select tb from terms where id = v_term),
+      'ru', coalesce((select ru from terms where id = v_term), v_ru), 'definition', (select definition from terms where id = v_term),
+      'candidates', v_cands, 'langs', v_lst);
   end loop;
   return jsonb_build_object('rows', outv, 'added', v_add);
 end $$;
@@ -1849,7 +1878,7 @@ begin
     'admin_users()', 'admin_create_user(text, text, text, text, jsonb)', 'admin_update_user(integer, text, text, text, jsonb)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
     'admin_add_project(text)', 'admin_update_project(integer, text, boolean)', 'admin_delete_project(integer)',
-    'withdraw_request(integer)', 'set_lang_optional(integer, text, boolean)', 'import_translations(text, jsonb, boolean)',
+    'withdraw_request(integer)', 'set_lang_optional(integer, text, boolean)', 'import_translations(jsonb, boolean)',
     'submit_feedback(text, text, text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'
   ] loop
     execute 'grant execute on function ' || f || ' to authenticated';

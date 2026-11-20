@@ -1,21 +1,21 @@
 import { useState } from 'react';
-import { rpc } from '../api';
+import { rpc, type Language } from '../api';
 import type { PageProps } from '../router';
 import { Button, Message } from '../ui/kit';
 
-/** Загрузка готовых переводов от подрядчиков: файл .xlsx → проверка совпадений → «Без проверки». */
+/**
+ * Загрузка готовых переводов от подрядчиков: одна таблица, сколько угодно языков.
+ * Столбцы и языки определяются по названиям столбцов; термин ищется по русскому и определению.
+ */
 
-interface Row { row: number; tb: string | null; ru: string; text: string; current: string | null; status: 'add' | 'same' | 'differs' | 'not_found' | 'ambiguous' | 'empty' }
+type LangSt = 'add' | 'same' | 'differs' | 'skip' | 'no_lang';
+interface LangRes { text: string; current: string | null; status: LangSt; as: 'draft' | 'unchecked' }
+interface Row {
+  row: number; match: 'ok' | 'ambiguous' | 'not_found'; tb: string | null; ru: string; definition: string | null;
+  candidates: { tb: string; definition: string }[] | null; langs: Record<string, LangRes>;
+}
 interface Sheet { name: string; header: string[]; rows: string[][] }
-
-const STATUS: Record<Row['status'], { label: string; cls: string }> = {
-  add: { label: 'будет добавлен', cls: 'st-approved' },
-  same: { label: 'уже есть такой же', cls: 'st-unused' },
-  differs: { label: 'уже есть другой перевод — пропущен', cls: 'st-draft' },
-  not_found: { label: 'термин не найден', cls: 'st-need' },
-  ambiguous: { label: 'несколько терминов с таким русским — укажите номер TB', cls: 'st-need' },
-  empty: { label: 'пустой перевод', cls: 'st-unused' }
-};
+type Role = '' | 'tb' | 'ru' | 'definition' | `lang:${string}`;
 
 const cellText = (v: unknown): string => {
   if (v === null || v === undefined) return '';
@@ -29,30 +29,58 @@ const cellText = (v: unknown): string => {
   return String(v).trim();
 };
 
-const guess = (header: string[], re: RegExp) => header.findIndex((h) => re.test(h));
+// Другие названия языков, которые встречаются в таблицах
+const ALIASES: Record<string, string[]> = {
+  EN: ['english', 'англ'], KA: ['georgian', 'грузин'], HY: ['armenian', 'армян'], KK: ['kazakh', 'казах'],
+  UZ: ['uzbek', 'узбек'], KY: ['kyrgyz', 'kirghiz', 'кыргыз', 'киргиз'], TG: ['tajik', 'таджик'], TR: ['turkish', 'турец'],
+  ZH: ['chinese', 'китай'], SW: ['swahili', 'суахили'], AZ: ['azerbaijani', 'азербайдж'], AM: ['amharic', 'амхар']
+};
+
+/** Что лежит в столбце — по его названию */
+function guessRole(h: string, langs: Language[]): Role {
+  const s = h.trim().toLowerCase();
+  if (!s) return '';
+  if (/^(tb|номер|№|id)\b/.test(s)) return 'tb';
+  if (/определ|definition|значение|описание/.test(s)) return 'definition';
+  if (/коммент|comment|примеч|note|пример/.test(s)) return '';
+  for (const l of langs) {
+    const words = [l.name.toLowerCase().slice(0, 5), ...(ALIASES[l.code] ?? [])];
+    if (new RegExp(`(^|[^a-zа-я])${l.code.toLowerCase()}([^a-zа-я]|$)`).test(s) || words.some((w) => s.includes(w))) return `lang:${l.code}`;
+  }
+  if (/рус|^ru\b|russian|термин|term|source/.test(s)) return 'ru';
+  return '';
+}
+
+const MATCH: Record<Row['match'], { label: string; total: string; cls: string }> = {
+  ok: { label: 'найден', total: 'Термин найден', cls: 'st-approved' },
+  ambiguous: { label: 'несколько терминов — нужно определение', total: 'Нужно определение', cls: 'st-draft' },
+  not_found: { label: 'термина нет в глоссарии', total: 'Нет в глоссарии', cls: 'st-need' }
+};
+const LST: Record<LangSt, { label: string; cls: string }> = {
+  add: { label: 'добавим', cls: 'st-approved' },
+  same: { label: 'уже есть', cls: 'st-unused' },
+  differs: { label: 'уже есть другой — пропустим', cls: 'st-draft' },
+  skip: { label: 'пропустим', cls: 'st-unused' },
+  no_lang: { label: 'такого языка нет', cls: 'st-need' }
+};
 
 export function ImportTranslationsPage({ me }: PageProps) {
-  const allowed = me.languages.filter((l) => l.active && (l.kind === 'short' || !l.has_validator));
-  const [lang, setLang] = useState(allowed[0]?.code ?? '');
+  const langs = me.languages.filter((l) => l.active);
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [sheetIx, setSheetIx] = useState(0);
-  const [colTb, setColTb] = useState(-1);
-  const [colRu, setColRu] = useState(-1);
-  const [colTr, setColTr] = useState(-1);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [fileName, setFileName] = useState('');
   const [check, setCheck] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error' | 'warn'; text: string } | null>(null);
   const sheet = sheets[sheetIx];
 
-  const pickSheet = (list: Sheet[], ix: number, lg = lang) => {
+  const pickSheet = (list: Sheet[], ix: number) => {
     setSheetIx(ix); setCheck(null);
-    const h = list[ix]?.header ?? [];
-    const L = me.languages.find((l) => l.code === lg);
-    setColTb(guess(h, /^\s*(tb|номер)/i));
-    setColRu(guess(h, /рус|^\s*ru\b|russian|термин/i));
-    const byLang = L ? h.findIndex((x) => new RegExp(`\\b${L.code}\\b|${L.name.slice(0, 5)}`, 'i').test(x)) : -1;
-    setColTr(byLang >= 0 ? byLang : guess(h, /перевод|translation/i));
+    const r = (list[ix]?.header ?? []).map((h) => guessRole(h, langs));
+    // русский термин не нашёлся по названию — берём первый столбец без роли
+    if (!r.includes('ru')) { const i = r.findIndex((x) => x === ''); if (i >= 0) r[i] = 'ru'; }
+    setRoles(r);
   };
 
   const readFile = async (f: File) => {
@@ -78,54 +106,48 @@ export function ImportTranslationsPage({ me }: PageProps) {
     }
   };
 
-  const payload = () => (sheet?.rows ?? [])
-    .map((r) => ({ tb: colTb >= 0 ? r[colTb] : '', ru: colRu >= 0 ? r[colRu] : '', text: colTr >= 0 ? r[colTr] : '' }))
-    .filter((x) => x.tb || x.ru || x.text);
+  const langCols = roles.map((r, i) => [r, i] as const).filter(([r]) => r.startsWith('lang:')).map(([r, i]) => ({ code: r.slice(5), i }));
+  const payload = () => (sheet?.rows ?? []).map((r) => {
+    const get = (role: Role) => { const i = roles.indexOf(role); return i >= 0 ? r[i] ?? '' : ''; };
+    const tr: Record<string, string> = {};
+    langCols.forEach(({ code, i }) => { if (r[i]) tr[code] = tr[code] ? `${tr[code]}; ${r[i]}` : r[i]; });
+    return { tb: get('tb'), ru: get('ru'), definition: get('definition'), tr };
+  }).filter((x) => (x.ru || x.tb) && Object.keys(x.tr).length);
 
   const run = async (apply: boolean) => {
-    if (colTr < 0) return setMsg({ kind: 'error', text: 'Выберите столбец с переводом.' });
-    if (colTb < 0 && colRu < 0) return setMsg({ kind: 'error', text: 'Выберите столбец с номером TB или с русским термином — по нему найдём термин.' });
+    if (!roles.includes('ru') && !roles.includes('tb')) return setMsg({ kind: 'error', text: 'Укажите, в каком столбце русский термин.' });
+    if (!langCols.length) return setMsg({ kind: 'error', text: 'Не нашла ни одного столбца с языком. Укажите язык у столбцов с переводами.' });
     setBusy(true); setMsg(null);
     try {
-      const r = await rpc<{ rows: Row[]; added: number }>('import_translations', { p_lang: lang, p_rows: payload(), p_apply: apply });
+      const r = await rpc<{ rows: Row[]; added: number }>('import_translations', { p_rows: payload(), p_apply: apply });
       if (apply) {
-        setMsg({ kind: 'ok', text: `Загружено переводов: ${r.added}. Они видны в глоссарии со статусом «Без проверки».` });
+        setMsg({ kind: 'ok', text: `Загружено переводов: ${r.added}.` });
         setCheck(null); setSheets([]); setFileName('');
       } else setCheck(r.rows);
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }); } finally { setBusy(false); }
   };
 
-  if (!allowed.length) {
-    return <div className="narrow"><h1>Загрузка переводов</h1><Message kind="info">Сейчас нет сокращённых языков и языков без валидатора — загружать некуда.</Message></div>;
-  }
-  const counts = check ? Object.fromEntries(Object.keys(STATUS).map((k) => [k, check.filter((x) => x.status === k).length])) as Record<Row['status'], number> : null;
-  const colSelect = (label: string, v: number, set: (n: number) => void, optional = false) => (
-    <label className="field"><span>{label}</span>
-      <select value={v} onChange={(e) => { set(Number(e.target.value)); setCheck(null); }}>
-        <option value={-1}>{optional ? '— нет —' : '— выберите —'}</option>
-        {sheet?.header.map((h, i) => <option key={i} value={i}>{h || `Столбец ${i + 1}`}</option>)}
-      </select>
-    </label>
-  );
+  const toAdd = check ? check.reduce((n, r) => n + Object.values(r.langs).filter((l) => l.status === 'add').length, 0) : 0;
+  const byMatch = check ? (Object.keys(MATCH) as Row['match'][]).map((k) => [k, check.filter((r) => r.match === k).length] as const) : [];
+  const perLang = check ? Object.entries(check.reduce<Record<string, { add: number; as: string }>>((acc, r) => {
+    Object.entries(r.langs).forEach(([c, l]) => { acc[c] ??= { add: 0, as: l.as }; if (l.status === 'add') acc[c].add++; });
+    return acc;
+  }, {})) : [];
 
   return (
     <div className="import-page">
       <h1>Загрузка переводов подрядчиков</h1>
-      <p className="muted">Для сокращённых языков и языков без валидатора. Переводы попадут в глоссарий со статусом «Без проверки».
-        Сначала покажем, что с чем совпало, — ничего не сохранится, пока вы не нажмёте «Загрузить».</p>
+      <p className="muted">Загрузите одну таблицу со всеми языками — сайт сам поймёт, где русский термин, определение и какие языки.
+        Сначала покажем, что с чем совпало: ничего не сохранится, пока вы не нажмёте «Загрузить».</p>
       <ol className="small muted">
-        <li>Таблица подрядчика: в одном столбце номер TB или русский термин, в другом — перевод. Первая строка — названия столбцов.</li>
-        <li>Если у термина уже есть перевод на этот язык — его не трогаем, строка будет пропущена.</li>
-        <li>Несколько вариантов перевода в одной ячейке разделяйте точкой с запятой.</li>
+        <li>Первая строка — названия столбцов: «Русский термин», «Определение», и по столбцу на язык (например, «KY», «Киргизский», «AM перевод»).</li>
+        <li>Термин ищем по русскому. Если в глоссарии несколько одинаковых русских терминов — по определению.</li>
+        <li>Языки без валидатора и сокращённые — сразу «Без проверки». Языки с валидатором — черновиком, его согласует валидатор.</li>
+        <li>Если у термина уже есть перевод на язык — его не трогаем. Несколько вариантов в ячейке — через точку с запятой.</li>
       </ol>
       {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
       <div className="card">
-        <label className="field"><span>Язык</span>
-          <select value={lang} onChange={(e) => { setLang(e.target.value); if (sheets.length) pickSheet(sheets, sheetIx, e.target.value); }}>
-            {allowed.map((l) => <option key={l.code} value={l.code}>{l.code} — {l.name}{l.kind === 'short' ? ' (сокращённый)' : ' (без валидатора)'}</option>)}
-          </select>
-        </label>
-        <label className="field"><span>Файл .xlsx</span>
+        <label className="field"><span>Таблица .xlsx</span>
           <input type="file" accept=".xlsx" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ''; }} />
           {fileName ? <span className="small muted">{fileName}</span> : null}
         </label>
@@ -138,41 +160,61 @@ export function ImportTranslationsPage({ me }: PageProps) {
         ) : null}
         {sheet ? (
           <>
-            <div className="row gap wrap">
-              {colSelect('Номер TB', colTb, setColTb, true)}
-              {colSelect('Русский термин', colRu, setColRu, true)}
-              {colSelect(`Перевод (${lang})`, colTr, setColTr)}
+            <div className="field"><span>Что в столбцах (поправьте, если сайт ошибся)</span>
+              <div className="colroles">
+                {sheet.header.map((h, i) => (
+                  <label key={i} className={roles[i] ? 'on' : ''}>
+                    <span className="small">{h || `Столбец ${i + 1}`}</span>
+                    <select value={roles[i] ?? ''} onChange={(e) => { const r = [...roles]; r[i] = e.target.value as Role; setRoles(r); setCheck(null); }}>
+                      <option value="">— не загружать —</option>
+                      <option value="ru">Русский термин</option>
+                      <option value="definition">Определение</option>
+                      <option value="tb">Номер TB</option>
+                      {langs.map((l) => <option key={l.code} value={`lang:${l.code}`}>Перевод {l.code} — {l.name}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
             </div>
-            <p className="small muted">Строк с данными: {payload().length}. Термин ищем по номеру TB, а если его нет — по русскому термину.</p>
+            <p className="small muted">
+              Языки: {langCols.length ? [...new Set(langCols.map((c) => c.code))].join(', ') : 'не найдены'} · строк с переводами: {payload().length}
+            </p>
             <Button kind="primary" disabled={busy} onClick={() => run(false)}>{busy && !check ? 'Проверяю…' : 'Проверить'}</Button>
           </>
         ) : null}
       </div>
 
-      {check && counts ? (
+      {check ? (
         <>
           <h2>Что получилось</h2>
           <div className="row gap wrap">
-            {(Object.keys(STATUS) as Row['status'][]).filter((k) => counts[k]).map((k) => (
-              <span key={k} className={`badge ${STATUS[k].cls}`}>{STATUS[k].label}: {counts[k]}</span>
-            ))}
+            {byMatch.filter(([, n]) => n).map(([k, n]) => <span key={k} className={`badge ${MATCH[k].cls}`}>{MATCH[k].total}: {n}</span>)}
+          </div>
+          <div className="row gap wrap" style={{ marginTop: 8 }}>
+            {perLang.map(([c, x]) => <span key={c} className="badge">{c}: добавим {x.add}{x.add ? (x.as === 'draft' ? ' (черновиком)' : ' (без проверки)') : ''}</span>)}
           </div>
           <div className="actions">
-            <Button kind="primary" disabled={busy || !counts.add} why={!counts.add ? 'Нечего добавлять' : undefined} onClick={() => run(true)}>
-              Загрузить {counts.add} {lang}</Button>
+            <Button kind="primary" disabled={busy || !toAdd} why={!toAdd ? 'Нечего добавлять' : undefined} onClick={() => run(true)}>Загрузить {toAdd} перев.</Button>
             <Button kind="link" onClick={() => setCheck(null)}>Отмена</Button>
           </div>
           <div className="table-wrap">
             <table className="grid">
-              <thead><tr><th>Строка</th><th>Номер</th><th>Русский термин</th><th>Перевод из файла</th><th>Сейчас в глоссарии</th><th>Что будет</th></tr></thead>
+              <thead><tr><th>Строка</th><th>Термин</th><th>Совпадение</th><th>Переводы</th></tr></thead>
               <tbody>{check.map((r) => (
                 <tr key={r.row}>
                   <td className="muted">{r.row + 1}</td>
-                  <td className="tb">{r.tb ?? ''}</td>
-                  <td><b>{r.ru}</b></td>
-                  <td>{r.text}</td>
-                  <td className="muted">{r.current ?? ''}</td>
-                  <td><span className={`badge ${STATUS[r.status].cls}`}>{STATUS[r.status].label}</span></td>
+                  <td>
+                    {r.tb ? <><span className="tb">{r.tb}</span>{' '}</> : null}<b>{r.ru}</b>
+                    {r.definition ? <div className="muted small clip" title={r.definition}>{r.definition}</div> : null}
+                  </td>
+                  <td>
+                    <span className={`badge ${MATCH[r.match].cls}`}>{MATCH[r.match].label}</span>
+                    {r.candidates?.length ? <div className="small muted">{r.candidates.map((c) => `${c.tb}: ${c.definition || 'без определения'}`).join(' · ')}</div> : null}
+                  </td>
+                  <td className="small">{Object.entries(r.langs).map(([c, l]) => (
+                    <div key={c}><b>{c}</b> {l.text} <span className={`badge ${LST[l.status].cls}`}>{LST[l.status].label}</span>
+                      {l.status === 'differs' && l.current ? <span className="muted"> сейчас: {l.current}</span> : null}</div>
+                  ))}</td>
                 </tr>
               ))}</tbody>
             </table>

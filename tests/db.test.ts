@@ -505,16 +505,35 @@ test('отзыв заявки: пока никто не вписал перев�
 });
 
 test('загрузка переводов подрядчика и удаление закрытого проекта', async () => {
-  await fails(call('man', 'import_translations', { p_lang: 'KA', p_rows: [{ tb: 'TB-00001', text: 'x' }] }), /сокращённые/);
-  await fails(call('tka', 'import_translations', { p_lang: 'AM', p_rows: [{ tb: 'TB-00001', text: 'x' }] }), /менеджер и владелец/);
-  const rows = [{ tb: 'TB-00001', text: 'QR AM' }, { ru: 'Только грузинский', text: 'ብቻ' }, { ru: 'нет такого', text: 'y' }, { ru: 'qr-код', text: '' }];
-  const pre = await call('man', 'import_translations', { p_lang: 'AM', p_rows: rows });
-  assert.deepEqual(pre.rows.map((x: any) => x.status), ['same', 'add', 'not_found', 'empty']);
+  await fails(call('tka', 'import_translations', { p_rows: [{ ru: 'QR-код', tr: { AM: 'x' } }] }), /менеджер и владелец/);
+  // два термина «Двойник» — различаем по определению
+  for (const [d, t] of [['кнопка в приложении', 'ორი'], ['склад, сборка заказа', 'სამი']]) {
+    await submit('vka', { type: 'new', ru: 'Двойник', lang: 'KA', translation: t, definition: d, new_meaning: true });
+    const z = await req(`ru = 'Двойник' and status = 'pending'`);
+    await approve('vka', z.id, z.version, true);
+  }
+  const rows = [
+    { ru: 'QR-код', tr: { AM: 'QR AM', KA: 'QR-კოდი' } },
+    { ru: 'Только грузинский', tr: { AM: 'ብቻ', HY: 'Միայն' } },
+    { ru: 'Двойник', definition: 'Склад, сборка заказа', tr: { AM: 'መጋዘን' } },
+    { ru: 'Двойник', tr: { AM: '?' } },
+    { ru: 'нет такого', tr: { AM: 'y' } },
+    { ru: 'QR-код', tr: { XX: 'z' } }
+  ];
+  const pre = await call('man', 'import_translations', { p_rows: rows });
+  assert.deepEqual(pre.rows.map((x: any) => x.match), ['ok', 'ok', 'ok', 'ambiguous', 'not_found', 'ok']);
+  assert.equal(pre.rows[0].langs.AM.status, 'same');
+  assert.equal(pre.rows[0].langs.KA.status, 'same');
+  assert.equal(pre.rows[1].langs.HY.as, 'draft', 'у HY есть валидатор — черновик');
+  assert.equal(pre.rows[2].definition, 'склад, сборка заказа');
+  assert.equal(pre.rows[3].candidates.length, 2);
+  assert.equal(pre.rows[5].langs.XX.status, 'no_lang');
   assert.equal(pre.added, 0);
-  const done = await call('man', 'import_translations', { p_lang: 'AM', p_rows: rows, p_apply: true });
-  assert.equal(done.added, 1);
+  const done = await call('man', 'import_translations', { p_rows: rows, p_apply: true });
+  assert.equal(done.added, 3);
   const g = await gl('Только грузинский');
   assert.equal(g.items[0].cells.AM.s, 'unchecked');
+  assert.equal(g.items[0].cells.HY.s, 'draft');
   // проект
   const [p] = await sql<{ id: number }>(`select id from projects where name = 'такси'`);
   await fails(call('owner', 'admin_delete_project', { p_project: p.id }), /только закрытый/);
