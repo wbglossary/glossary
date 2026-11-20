@@ -28,10 +28,10 @@ const TABLES: [string, string[]][] = [
   ['languages', ['code']], ['projects', ['id']], ['settings', ['key']], ['profiles', ['id']], ['terms', ['id']], ['retired_tb', ['tb']],
   ['term_projects', ['term_id', 'project_id']], ['term_langs', ['term_id', 'lang']], ['translations', ['id']],
   ['requests', ['id']], ['request_translations', ['request_id', 'lang']], ['request_answers', ['request_id', 'lang']],
-  ['request_comments', ['id']], ['term_comments', ['id']], ['audit_log', ['id']], ['exports', ['id']]
+  ['request_comments', ['id']], ['term_comments', ['id']], ['audit_log', ['id']], ['exports', ['id']], ['feedback', ['id']]
 ];
 const GENERATED = new Set(['ru_norm', 'text_norm']);
-const SERIAL = ['projects', 'profiles', 'terms', 'translations', 'requests', 'request_comments', 'term_comments', 'audit_log', 'exports'];
+const SERIAL = ['projects', 'profiles', 'terms', 'translations', 'requests', 'request_comments', 'term_comments', 'audit_log', 'exports', 'feedback'];
 type Row = Record<string, unknown>;
 
 // ---------- 1. Снимок

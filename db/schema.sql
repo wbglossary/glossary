@@ -230,12 +230,29 @@ create table exports (
   count      int not null
 );
 
+-- ---------- Обратная связь о сайте ----------
+create table feedback (
+  id          serial primary key,
+  author_id   int not null references profiles(id),
+  kind        text not null check (kind in ('question','problem','idea')),
+  body        text not null,
+  page        text not null default '',     -- где был человек, когда писал
+  status      text not null default 'new' check (status in ('new','in_progress','done')),
+  answer      text not null default '',
+  answered_by int references profiles(id),
+  answered_at timestamptz,
+  answer_seen boolean not null default true, -- автор ещё не видел новый ответ — false
+  created_at  timestamptz not null default now()
+);
+create index feedback_author on feedback (author_id, created_at desc);
+create index feedback_status on feedback (status, created_at desc);
+
 -- ---------- Закрываем таблицы от браузерных ключей ----------
 do $$
 declare t text;
 begin
   foreach t in array array['languages','projects','profiles','settings','terms','retired_tb','term_projects','term_langs',
-    'translations','requests','request_translations','request_answers','request_comments','term_comments','audit_log','exports'] loop
+    'translations','requests','request_translations','request_answers','request_comments','term_comments','audit_log','exports','feedback'] loop
     execute format('alter table %I enable row level security', t);
   end loop;
 end $$;

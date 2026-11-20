@@ -5,7 +5,7 @@
 drop trigger if exists only_invited_users on auth.users;
 
 -- Таблицы и счётчики глоссария (старые и новые имена)
-drop table if exists audit_log, exports, request_comments, request_answers, request_translations, requests,
+drop table if exists feedback, audit_log, exports, request_comments, request_answers, request_translations, requests,
   term_comments, term_langs, term_projects, retired_tb, translations, terms, concept_projects, concepts,
   settings, profiles, projects, languages cascade;
 drop sequence if exists tb_seq, req_seq;

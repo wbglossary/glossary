@@ -353,8 +353,65 @@ begin
     cards := cards || jsonb_build_object('key', 'unchecked', 'label', 'Переводы «Без проверки»', 'count', n, 'link', 'admin?tab=langs');
     select count(*) into n from requests r where r.status = 'pending';
     cards := cards || jsonb_build_object('key', 'allrequests', 'label', 'Заявок на рассмотрении', 'count', n, 'link', 'log');
+    select count(*) into n from feedback f where f.status = 'new';
+    cards := cards || jsonb_build_object('key', 'feedback', 'label', 'Новые обращения в обратной связи', 'count', n, 'link', 'feedback');
   end if;
+  -- ответы на обращения показываем, только когда они есть
+  select count(*) into n from feedback f where f.author_id = u.id and not f.answer_seen;
+  if n > 0 then cards := cards || jsonb_build_object('key', 'fb-answers', 'label', 'Ответы на ваши обращения', 'count', n, 'link', 'feedback'); end if;
   return cards;
+end $$;
+
+-- =====================================================================
+-- API: обратная связь о сайте (вопросы, проблемы, идеи). Читает и отвечает владелец.
+-- =====================================================================
+
+create or replace function feedback_kind_label(k text) returns text language sql immutable as $$
+  select case k when 'question' then 'Вопрос' when 'problem' then 'Проблема' else 'Идея' end
+$$;
+
+create or replace function submit_feedback(p_kind text, p_body text, p_page text default '') returns int
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); v text := btrim(coalesce(p_body, '')); v_id int;
+begin
+  if p_kind not in ('question','problem','idea') then perform app_error('Выберите: вопрос, проблема или идея.'); end if;
+  if v = '' then perform app_error('Напишите, что случилось или что хотите предложить.'); end if;
+  if length(v) > 5000 then perform app_error('Слишком длинно — до 5000 знаков. Разбейте на несколько сообщений.'); end if;
+  insert into feedback(author_id, kind, body, page) values (u.id, p_kind, v, left(coalesce(p_page, ''), 200)) returning id into v_id;
+  return v_id;
+end $$;
+
+create or replace function feedback_list(p_status text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); v jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'id', f.id, 'kind', f.kind, 'kind_label', feedback_kind_label(f.kind), 'body', f.body, 'page', f.page, 'status', f.status,
+      'answer', f.answer, 'answered_at', f.answered_at, 'created_at', f.created_at, 'mine', f.author_id = u.id,
+      'author', author_json(u, f.author_id), 'answered_by', case when f.answered_by is not null then display_name(u, f.answered_by) end,
+      'unseen', f.author_id = u.id and not f.answer_seen)
+    order by f.created_at desc), '[]')
+  into v
+  from feedback f
+  where (is_owner(u) or f.author_id = u.id) and (p_status is null or f.status = p_status);
+  -- автор открыл список — новые ответы прочитаны
+  update feedback set answer_seen = true where author_id = u.id and not answer_seen;
+  return v;
+end $$;
+
+create or replace function answer_feedback(p_id int, p_answer text, p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); f feedback; v text := btrim(coalesce(p_answer, ''));
+begin
+  if not is_owner(u) then perform app_error('Отвечать на обращения может владелец.'); end if;
+  if p_status not in ('new','in_progress','done') then perform app_error('Неизвестный статус.'); end if;
+  select * into f from feedback where id = p_id for update;
+  if not found then perform app_error('Обращение не найдено.'); end if;
+  update feedback set status = p_status, answer = v,
+    answered_by = case when v <> f.answer then u.id else answered_by end,
+    answered_at = case when v <> f.answer then now() else answered_at end,
+    answer_seen = case when v <> f.answer and v <> '' and f.author_id <> u.id then false else answer_seen end
+  where id = f.id;
 end $$;
 
 -- =====================================================================
@@ -1593,7 +1650,8 @@ begin
     'export_data(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',
     'admin_users()', 'admin_create_user(text, text, text, text)', 'admin_update_user(integer, text, text, text)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
-    'admin_add_project(text)', 'admin_update_project(integer, text, boolean)'
+    'admin_add_project(text)', 'admin_update_project(integer, text, boolean)',
+    'submit_feedback(text, text, text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'
   ] loop
     execute 'grant execute on function ' || f || ' to authenticated';
   end loop;

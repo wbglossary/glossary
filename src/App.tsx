@@ -13,6 +13,11 @@ import { ArchivePage } from './pages/Archive';
 import { ExportPage } from './pages/Export';
 import { LogPage } from './pages/Log';
 import { AdminPage } from './pages/Admin';
+import { FeedbackPage } from './pages/Feedback';
+import { HelpPage } from './pages/Help';
+import { FeedbackModal } from './ui/FeedbackModal';
+import { Icon } from './ui/Icon';
+import { menuHint } from './menuHints';
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -20,6 +25,7 @@ export function App() {
   const [meError, setMeError] = useState<string | null>(null);
   const [route, setRoute] = useState<Route>(readRoute());
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -77,7 +83,9 @@ export function App() {
     { page: 'archive', label: 'Архив', show: can.archive(me) },
     { page: 'export', label: 'Выгрузка', show: can.export(me) },
     { page: 'log', label: 'Журнал изменений', show: can.log(me) },
-    { page: 'admin', label: 'Администрирование', show: can.admin(me) }
+    { page: 'admin', label: 'Администрирование', show: can.admin(me) },
+    { page: 'help', label: 'Инструкция', show: true },
+    { page: 'feedback', label: 'Обратная связь', show: true }
   ];
   const visible = menu.filter((m) => m.show);
   const current = visible.find((m) => m.page === route.page) ? route.page : 'home';
@@ -88,9 +96,16 @@ export function App() {
     <div className="layout">
       <nav className="side">
         <div className="logo"><i /> Глоссарий</div>
-        {visible.map((m) => (
-          <a key={m.page} href={`#/${m.page}`} className={current === m.page ? 'active' : ''}>{m.label}</a>
-        ))}
+        {visible.map((m, i) => {
+          const hint = menuHint(m.page, me);
+          return (
+            <a key={m.page} href={`#/${m.page}`} className={`${current === m.page ? 'active' : ''}${m.page === 'help' ? ' sep' : ''}`}
+              aria-describedby={hint ? `hint-${i}` : undefined}>
+              {m.label}
+              {hint ? <span className="nav-hint" role="tooltip" id={`hint-${i}`}>{hint}</span> : null}
+            </a>
+          );
+        })}
       </nav>
       <div className="main">
         <header className="top">
@@ -110,8 +125,14 @@ export function App() {
           {current === 'export' && <ExportPage {...props} />}
           {current === 'log' && <LogPage {...props} />}
           {current === 'admin' && <AdminPage {...props} />}
+          {current === 'help' && <HelpPage {...props} />}
+          {current === 'feedback' && <FeedbackPage {...props} />}
         </section>
       </div>
+      <button className="fb-fab" onClick={() => setFeedbackOpen(true)} aria-label="Обратная связь: вопрос, проблема или идея">
+        <Icon name="comment" size={18} /><span>Обратная связь</span>
+      </button>
+      {feedbackOpen ? <FeedbackModal page={current} pageLabel={visible.find((m) => m.page === current)?.label ?? ''} onClose={() => setFeedbackOpen(false)} /> : null}
       {avatarOpen ? (
         <div className="modal-back" onMouseDown={() => setAvatarOpen(false)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>

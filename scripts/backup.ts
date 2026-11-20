@@ -10,9 +10,9 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import postgres from 'postgres';
 
 const TABLES = ['languages', 'projects', 'settings', 'profiles', 'terms', 'retired_tb', 'term_projects', 'term_langs', 'translations',
-  'requests', 'request_translations', 'request_answers', 'request_comments', 'term_comments', 'audit_log', 'exports'];
+  'requests', 'request_translations', 'request_answers', 'request_comments', 'term_comments', 'audit_log', 'exports', 'feedback'];
 const JSONB = ['forbidden', 'draft', 'lang_fields', 'prefs']; // столбцы jsonb
-const SERIAL = ['projects', 'profiles', 'terms', 'translations', 'requests', 'request_comments', 'term_comments', 'audit_log', 'exports'];
+const SERIAL = ['projects', 'profiles', 'terms', 'translations', 'requests', 'request_comments', 'term_comments', 'audit_log', 'exports', 'feedback'];
 
 if (existsSync('.env.local')) {
   for (const line of readFileSync('.env.local', 'utf8').split('\n')) {

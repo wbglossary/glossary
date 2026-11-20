@@ -354,6 +354,23 @@ test('проекты у нескольких терминов сразу: мен
   assert.ok(!(await call('owner', 'term_card', { p_id: a })).projects.some((p: { id: number }) => p.id === 1));
 });
 
+test('обратная связь: пишут все, видит своё; владелец видит всё и отвечает, автор видит ответ', async () => {
+  await fails(call('reader', 'submit_feedback', { p_kind: 'idea', p_body: '   ', p_page: 'home' }), /Напишите/);
+  await fails(call('reader', 'submit_feedback', { p_kind: 'wish', p_body: 'x', p_page: 'home' }), /вопрос, проблема или идея/);
+  const id = await call('reader', 'submit_feedback', { p_kind: 'problem', p_body: 'Не нашла кнопку выгрузки', p_page: 'glossary' });
+  await call('tka', 'submit_feedback', { p_kind: 'idea', p_body: 'Хочу тёмную тему', p_page: 'work' });
+  assert.equal((await call('reader', 'feedback_list', {})).length, 1, 'читатель видит только своё');
+  assert.equal((await call('owner', 'feedback_list', { p_status: 'new' })).length >= 2, true);
+  await fails(call('man', 'answer_feedback', { p_id: id, p_answer: 'x', p_status: 'done' }), /владелец/);
+  await call('owner', 'answer_feedback', { p_id: id, p_answer: 'Выгрузка — у менеджера и владельца', p_status: 'done' });
+  const d = await call('reader', 'dashboard');
+  assert.ok(d.some((c: { key: string; count: number }) => c.key === 'fb-answers' && c.count === 1), 'у автора — счётчик ответа');
+  const mine = await call('reader', 'feedback_list', {});
+  assert.equal(mine[0].answer, 'Выгрузка — у менеджера и владельца');
+  assert.equal(mine[0].unseen, true);
+  assert.ok(!(await call('reader', 'dashboard')).some((c: { key: string }) => c.key === 'fb-answers'), 'после просмотра счётчик пропадает');
+});
+
 test('архив вручную и удаление — только владелец; журнал нельзя менять', async () => {
   const id = (await gl('корзина')).items[0].id;
   const c = await call('owner', 'term_card', { p_id: id });
