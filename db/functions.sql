@@ -226,7 +226,7 @@ begin
   return array(select distinct x from unnest(outv) x);
 end $$;
 
--- Языки, которые должны быть «Не используется», чтобы термин ушёл в архив:
+-- Языки, которые должны быть «Не актуально для языка», чтобы термин ушёл в архив:
 -- все активные полные языки и сокращённые, где у термина есть перевод.
 create or replace function relevant_langs(p_term int) returns setof text language sql stable as $$
   select l.code from languages l where l.active and (l.kind = 'full'
@@ -244,7 +244,7 @@ begin
   end if;
   update terms set status = 'archived', archive_reason = 'all_unused' where id = p_term;
   perform bump_term(p_term, u.id);
-  perform log_event(u, 'Термин ушёл в архив: все языки «Не используется»', t.tb, null, null, 'Действует', 'В архиве', t.ru);
+  perform log_event(u, 'Термин ушёл в архив: все языки «Не актуально для языка»', t.tb, null, null, 'Действует', 'В архиве', t.ru);
   for r in select id, code from requests where term_id = p_term and type = 'obsolete' and status = 'pending' loop
     update requests set status = 'closed', decided_at = now(), version = version + 1 where id = r.id;
   end loop;
@@ -767,7 +767,7 @@ begin
   if r.status <> 'pending' then perform app_error('Заявка ' || r.code || ': решение уже принято.'); end if;
   if r.version <> p_version then perform conflict_error(); end if;
   if u.role <> 'validator' then perform app_error('Утверждать заявки может только валидатор языка.'); end if;
-  if r.type = 'obsolete' then perform app_error('На просьбу «Устарел» отвечают «Не используется» или «Оставить».'); end if;
+  if r.type = 'obsolete' then perform app_error('На просьбу «Устарел» отвечают «Не актуально для языка» или «Оставить».'); end if;
 
   if r.type = 'new' then
     v_l := validator_lang_for(u, r);
@@ -953,7 +953,7 @@ begin
   if not found then perform app_error('Термин не найден — возможно, его удалили. Обновите страницу.'); end if;
   if t.status <> 'active' then perform app_error('Термин в архиве.'); end if;
   if exists (select 1 from term_langs tl where tl.term_id = t.id and tl.lang = p_lang and tl.unused) then
-    perform app_error('Язык помечен «Не используется». Сначала верните его в работу.');
+    perform app_error('Язык помечен «Не актуально для языка». Сначала верните его в работу.');
   end if;
   if t.version <> p_version then
     if live_text(t.id, p_lang) = array_to_string(v_items, '; ') then
@@ -1092,7 +1092,7 @@ begin
   return jsonb_build_object('version', bump_term(t.id, u.id));
 end $$;
 
--- «Не используется» / «Вернуть в работу». Когда все нужные языки «Не используется» — термин уходит в архив.
+-- «Не актуально для языка» / «Вернуть в работу». Когда все нужные языки «Не актуально для языка» — термин уходит в архив.
 create or replace function set_unused(p_term int, p_lang text, p_unused boolean) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); t terms; v_archived boolean := false; r record;
@@ -1102,7 +1102,7 @@ begin
   if not found or t.status <> 'active' then perform app_error('Термин не найден или в архиве.'); end if;
   perform ensure_term_lang(t.id, p_lang);
   update term_langs set unused = p_unused where term_id = t.id and lang = p_lang;
-  perform log_event(u, case when p_unused then 'Язык: «Не используется»' else 'Язык возвращён в работу' end, t.tb, null, p_lang);
+  perform log_event(u, case when p_unused then 'Язык: «Не актуально для языка»' else 'Язык возвращён в работу' end, t.tb, null, p_lang);
   perform bump_term(t.id, u.id);
   if p_unused then
     for r in select id from requests where term_id = t.id and type = 'obsolete' and status = 'pending' loop
@@ -1148,6 +1148,22 @@ begin
   perform bump_term(t.id, u.id);
 end $$;
 
+-- То же для нескольких терминов сразу (галочки в Рабочей области)
+create or replace function set_unused_many(p_terms int[], p_lang text, p_unused boolean) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); v_id int; n int := 0; a int := 0; r jsonb;
+begin
+  if not is_validator_of(u, p_lang) then perform app_error('Пометить ' || lang_name(p_lang) || ' может только валидатор ' || lang_gen(p_lang) || '.'); end if;
+  foreach v_id in array coalesce(p_terms, '{}') loop
+    if not exists (select 1 from terms where id = v_id and status = 'active') then continue; end if;
+    if coalesce((select tl.unused from term_langs tl where tl.term_id = v_id and tl.lang = p_lang), false) = p_unused then continue; end if;
+    r := set_unused(v_id, p_lang, p_unused);
+    n := n + 1;
+    if coalesce((r->>'archived')::boolean, false) then a := a + 1; end if;
+  end loop;
+  return jsonb_build_object('changed', n, 'archived', a);
+end $$;
+
 -- =====================================================================
 -- API: просьба «Устарел»
 -- =====================================================================
@@ -1166,7 +1182,7 @@ begin
   v_code := 'Z-' || lpad(nextval('req_seq')::text, 5, '0');
   insert into requests(code, type, term_id, ru, reason, author_id) values (v_code, 'obsolete', t.id, t.ru, btrim(p_reason), u.id);
   perform log_event(u, 'Предложено: термин устарел', t.tb, v_code, null, null, null, btrim(p_reason));
-  -- язык самого предложившего валидатора сразу помечается «Не используется»
+  -- язык самого предложившего валидатора сразу помечается «Не актуально для языка»
   for v_l in select x from unnest(validator_langs(u)) x loop
     if exists (select 1 from translations x where x.term_id = t.id and x.lang = v_l and x.status <> 'obsolete') then
       v_archived := (set_unused(t.id, v_l, true)->>'archived')::boolean;
@@ -1274,7 +1290,7 @@ create or replace function archive_term(p_term int, p_version int) returns void
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); t terms;
 begin
-  if not is_owner(u) then perform app_error('Отправить термин в архив вручную может владелец. Остальные — через «Не используется» или просьбу «Устарел».'); end if;
+  if not is_owner(u) then perform app_error('Отправить термин в архив вручную может владелец. Остальные — через «Не актуально для языка» или просьбу «Устарел».'); end if;
   select * into t from terms where id = p_term for update;
   if not found then perform app_error('Термин не найден.'); end if;
   if t.version <> p_version then perform conflict_error(); end if;
@@ -1293,7 +1309,7 @@ begin
   if not found then perform app_error('Термин не найден.'); end if;
   if t.version <> p_version then perform conflict_error(); end if;
   if t.status <> 'archived' then perform app_error('Термин не в архиве.'); end if;
-  -- ушёл в архив из-за «Не используется» — языки возвращаются в прежние статусы
+  -- ушёл в архив из-за «Не актуально для языка» — языки возвращаются в прежние статусы
   if t.archive_reason = 'all_unused' then update term_langs set unused = false where term_id = t.id; end if;
   update terms set status = 'active', archive_reason = null where id = t.id;
   perform bump_term(t.id, u.id);
@@ -1446,7 +1462,7 @@ begin
   return jsonb_build_object(
     'can_restore', is_owner(u) or is_en_validator(u), 'can_delete', is_owner(u),
     'terms', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'version', t.version,
-        'reason', case t.archive_reason when 'all_unused' then 'все языки «Не используется»' else 'вручную' end,
+        'reason', case t.archive_reason when 'all_unused' then 'все языки «Не актуально для языка»' else 'вручную' end,
         'updated_at', t.updated_at, 'updated_by', display_name(u, t.updated_by), 'cells', lang_cells(t.id)) order by lower(t.ru))
       from (select * from terms t where t.status = 'archived' and search_match(t, p_q) order by lower(ru) limit 1000) t), '[]'),
     'rejected', coalesce((select jsonb_agg(request_json(u, r) order by r.decided_at desc) from
@@ -1869,7 +1885,7 @@ begin
     'edit_request(integer, jsonb)', 'approve_request(integer, integer, boolean)', 'reject_request(integer, integer)',
     'lang_requests(text)', 'my_requests()', 'add_request_comment(integer, text)', 'list_request_comments(integer)',
     'set_cell_text(integer, text, text, integer)', 'set_lang_approval(jsonb, text, boolean)', 'edit_translation(integer, text, text)',
-    'edit_lang_fields(integer, text, jsonb, integer)', 'set_unused(integer, text, boolean)',
+    'edit_lang_fields(integer, text, jsonb, integer)', 'set_unused(integer, text, boolean)', 'set_unused_many(integer[], text, boolean)',
     'propose_obsolete(integer, text)', 'answer_obsolete(integer, text, text)', 'close_obsolete(integer)',
     'edit_ru(integer, integer, jsonb)', 'set_term_project(integer[], integer, boolean)', 'archive_term(integer, integer)', 'restore_term(integer, integer)', 'delete_term(integer, text)',
     'merge_terms(integer, integer, jsonb)', 'add_term_comment(integer, text)', 'hide_term_comment(integer)',

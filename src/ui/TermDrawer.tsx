@@ -50,11 +50,11 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
             <Message kind="warn">
               <b>Предложено: термин устарел.</b> {c.obsolete_request.reason} <span className="muted">— <AuthorChip a={c.obsolete_request.author} size={16} /></span>
               {c.obsolete_request.answers.length ? <ul>{c.obsolete_request.answers.map((a) => (
-                <li key={a.lang}>{a.lang}: {a.answer === 'unused' ? '«Не используется»' : 'оставить'}{a.comment ? ` — ${a.comment}` : ''}</li>
+                <li key={a.lang}>{a.lang}: {a.answer === 'unused' ? '«Не актуально для языка»' : 'оставить'}{a.comment ? ` — ${a.comment}` : ''}</li>
               ))}</ul> : null}
               <div className="actions">
                 {c.obsolete_request.can_answer ? <>
-                  <Button small kind="primary" onClick={() => act(() => rpc('answer_obsolete', { p_request: c.obsolete_request!.id, p_answer: 'unused' }), 'Ваш язык помечен «Не используется».')}>Отметить мой язык «Не используется»</Button>
+                  <Button small kind="primary" onClick={() => act(() => rpc('answer_obsolete', { p_request: c.obsolete_request!.id, p_answer: 'unused' }), 'Ваш язык помечен «Не актуально для языка».')}>Отметить мой язык «Не актуально для языка»</Button>
                   <Button small onClick={() => { const why = prompt('Почему оставить? (по желанию)') ?? ''; act(() => rpc('answer_obsolete', { p_request: c.obsolete_request!.id, p_answer: 'keep', p_comment: why }), 'Ответ сохранён.'); }}>Оставить</Button>
                 </> : null}
                 {c.obsolete_request.can_close ? <Button small onClick={() => act(() => rpc('close_obsolete', { p_request: c.obsolete_request!.id }), 'Просьба закрыта.')}>Закрыть просьбу</Button> : null}
@@ -95,7 +95,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                       <span style={{ flex: 1 }} />
                       {l.can.approve && (l.status === 'draft' || l.status === 'unchecked') ? <Button small kind="primary" disabled={busy} onClick={() => approve(l, true)}>Согласовать</Button> : null}
                       {l.can.approve && l.status === 'approved' ? <Button small disabled={busy} onClick={() => approve(l, false)}>Снять согласование</Button> : null}
-                      {l.can.unused && l.status !== 'unused' ? <Button small onClick={() => { if (confirm_(`Пометить ${l.name} «Не используется»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не используется».'); }}>Не используется</Button> : null}
+                      {l.can.unused && l.status !== 'unused' ? <Button small onClick={() => { if (confirm_(`Пометить ${l.name} «Не актуально для языка»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не актуально для языка».'); }}>Не актуально</Button> : null}
                       {l.can.unused && l.unused ? <Button small onClick={() => act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: false }), 'Язык возвращён в работу.')}>Вернуть в работу</Button> : null}
                       {l.can.optional && l.status === 'optional' ? <Button small onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: false }), 'Теперь перевод на этот язык нужен.')}>Нужен перевод</Button> : null}
                       {l.can.optional && l.status === 'need' && me.role !== 'validator' ? <Button small kind="link" onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: true }), 'Перевод на этот язык — по желанию.')}>По желанию</Button> : null}
@@ -306,7 +306,7 @@ function ObsoleteConfirm({ onOk, onCancel, busy }: { onOk: (reason: string) => v
   const [reason, setReason] = useState('');
   return (
     <Confirm title="Предложить: термин устарел" confirmLabel="Отправить просьбу" busy={busy || !reason.trim()} onCancel={onCancel} onConfirm={() => onOk(reason)}>
-      Валидаторы всех языков, где есть перевод, получат просьбу отметить свой язык «Не используется». Когда отметят все — термин уйдёт в архив.
+      Валидаторы всех языков, где есть перевод, получат просьбу отметить свой язык «Не актуально для языка». Когда отметят все — термин уйдёт в архив.
       <label className="field"><span>Почему термин устарел <b className="req">обязательно</b></span><textarea value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     </Confirm>
   );

@@ -74,7 +74,18 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
     } catch (e) { setMsgs([{ kind: 'error', text: (e as Error).message }]); }
     setSel([]); data.reload();
   };
-  const selectable = items.filter((x) => x.status === 'draft' || x.status === 'unchecked');
+  const selectable = items;
+  const selRows = items.filter((x) => sel.includes(x.id));
+  const toApprove = selRows.filter((x) => x.status === 'draft' || x.status === 'unchecked');
+  const markUnused = async (rows: WorkItem[], unused: boolean) => {
+    setMsgs([]);
+    try {
+      const r = await rpc<{ changed: number; archived: number }>('set_unused_many', { p_terms: rows.map((x) => x.id), p_lang: lang, p_unused: unused });
+      setMsgs([{ kind: 'ok', text: (unused ? `Отмечено «Не актуально для языка»: ${r.changed}.` : `Возвращено в работу: ${r.changed}.`)
+        + (r.archived ? ` Ушло в архив (не актуально ни для одного языка): ${r.archived}.` : '') }]);
+    } catch (e) { setMsgs([{ kind: 'error', text: (e as Error).message }]); }
+    setSel([]); data.reload();
+  };
   const pendingReqs = reqs.data?.length ?? 0;
 
   return (
@@ -103,7 +114,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
             {tab === 'mine' ? (
               <div className="seg">
                 {[['all', 'Все'], ['need', `Нужен перевод${d?.kind === 'full' ? ` · ${d?.counts.need ?? ''}` : ''}`], ['draft', `Черновик · ${d?.counts.draft ?? ''}`],
-                  ['unchecked', 'Без проверки'], ['approved', 'Согласовано'], ['unused', 'Не используется']].map(([k, label]) => (
+                  ['unchecked', 'Без проверки'], ['approved', 'Согласовано'], ['unused', 'Не актуально для языка']].map(([k, label]) => (
                   <button key={k} className={status === k ? 'on' : ''} onClick={() => setStatus(k)}>{label}</button>
                 ))}
               </div>
@@ -114,8 +125,11 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
             </select>
             <SearchBox value={q} onChange={setQ} />
             <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
-            {d?.can.approve ? <Button kind="primary" disabled={!sel.length} why={!sel.length ? 'Отметьте строки с черновиком' : undefined}
-              onClick={() => approveRows(items.filter((x) => sel.includes(x.id)))}>Согласовать выбранные ({sel.length})</Button> : null}
+            {d?.can.approve ? <Button kind="primary" disabled={!toApprove.length} why={!toApprove.length ? 'Отметьте строки с черновиком' : undefined}
+              onClick={() => approveRows(toApprove)}>Согласовать выбранные ({toApprove.length})</Button> : null}
+            {d?.can.approve && sel.length ? (status === 'unused' && tab === 'mine'
+              ? <Button onClick={() => markUnused(selRows, false)}>Вернуть в работу ({sel.length})</Button>
+              : <Button onClick={() => { if (window.confirm(`Отметить ${sel.length} терм. «Не актуально для языка»? Ячейки станут белыми, в выгрузке — пустыми. Вернуть можно в фильтре «Не актуально для языка».`)) markUnused(selRows, true); }}>Не актуально для языка ({sel.length})</Button>) : null}
           </div>
           {chooser ? (
             <div className="card colpick">
@@ -153,7 +167,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id} className={open === r.id ? 'sel' : ''}>
-                    {d?.can.approve ? <td className="s0"><input type="checkbox" disabled={!(r.status === 'draft' || r.status === 'unchecked')} checked={sel.includes(r.id)}
+                    {d?.can.approve ? <td className="s0"><input type="checkbox" checked={sel.includes(r.id)}
                       onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td> : null}
                     <td className="tb link s1" onClick={() => setOpen(r.id)}>{r.tb}</td>
                     <td className="link s2" onClick={() => setOpen(r.id)}><b>{r.ru}</b>{tab === 'new' ? <div className="muted small">{fmtDate(r.created_at, false)}</div> : null}</td>
@@ -279,7 +293,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
     try {
       const comment = a === 'keep' ? prompt('Почему оставить? (по желанию)') ?? '' : '';
       const res = await rpc<{ archived: boolean }>('answer_obsolete', { p_request: r.id, p_answer: a, p_comment: comment });
-      setMsgs([{ kind: 'ok', text: a === 'keep' ? 'Ответ сохранён: оставить.' : res.archived ? 'Все языки отметили — термин ушёл в архив.' : 'Ваш язык помечен «Не используется».' }]);
+      setMsgs([{ kind: 'ok', text: a === 'keep' ? 'Ответ сохранён: оставить.' : res.archived ? 'Все языки отметили — термин ушёл в архив.' : 'Ваш язык помечен «Не актуально для языка».' }]);
     } catch (e) { setMsgs([{ kind: 'error', text: (e as Error).message }]); }
     reqs.reload();
   };
@@ -327,7 +341,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
                     <Button small onClick={() => setReject(r)}>Отклонить</Button>
                   </> : null}
                   {r.can_answer ? <>
-                    <Button small kind="primary" onClick={() => answer(r, 'unused')}>Не используется</Button>
+                    <Button small kind="primary" onClick={() => answer(r, 'unused')}>Не актуально</Button>
                     <Button small onClick={() => answer(r, 'keep')}>Оставить</Button>
                   </> : null}
                 </td>

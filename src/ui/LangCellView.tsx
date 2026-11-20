@@ -10,7 +10,7 @@ export function LangCellView({ cell, kind, replaced, showComment }: { cell?: Cel
   const text = cell.t.join('; ');
   return (
     <td className={cls}>
-      {cell.s === 'unused' ? <span className="muted small">не используется</span> : null}
+      {cell.s === 'unused' ? <span className="muted small">не актуально</span> : null}
       {cell.s === 'optional' ? <span className="muted small">по желанию</span> : null}
       {text ? <>{text}<CopyButton text={cell.t[0]} /></> : null}
       {cell.s === 'unchecked' ? <span className="muted small"> без проверки</span> : null}

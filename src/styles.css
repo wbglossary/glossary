@@ -215,7 +215,7 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; backgrou
 td.c-need { background: #fdf0f1; }
 td.c-draft { background: #fffaf0; }
 td.c-unchecked { background: #f8f3fe; }
-td.c-unused { background: #f6f6f8; color: var(--muted); }
+td.c-unused { color: var(--muted); }
 .cell-text { display: inline; }
 .cell-input { width: 100%; min-width: 180px; border: 1px solid transparent; background: transparent; padding: 5px 8px; min-height: 0; resize: vertical; border-radius: 8px; }
 .cell-input:hover { border-color: var(--line-strong); background: #fff; }

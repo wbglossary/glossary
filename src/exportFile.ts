@@ -54,7 +54,7 @@ export async function buildXlsx(d: ExportData): Promise<Blob> {
   return new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_TYPE });
 }
 
-const LABEL: Record<string, string> = { need: 'нужен перевод', optional: 'по желанию', draft: 'черновик', unchecked: 'без проверки', approved: '', unused: 'не используется' };
+const LABEL: Record<string, string> = { need: 'нужен перевод', optional: 'по желанию', draft: 'черновик', unchecked: 'без проверки', approved: '', unused: 'не актуально' };
 
 /** Таблица для просмотра: все языки, пустые ячейки полных языков — красные. */
 export async function buildViewXlsx(d: ViewData): Promise<Blob> {
@@ -78,7 +78,7 @@ export async function buildViewXlsx(d: ViewData): Promise<Blob> {
       const cell = row.getCell(5 + i);
       cell.alignment = { wrapText: true, vertical: 'top' };
       if (!c) return;
-      if (c.s === 'unused') cell.fill = fill('FFEDEDED');
+      if (c.s === 'unused') return;
       else if (c.s === 'need' && l.kind === 'full') cell.fill = fill('FFF8C9C9');
       else if (c.s === 'unchecked') cell.fill = fill('FFEDE4FA');
       else if (c.s === 'draft') cell.fill = fill('FFFFF1C9');
@@ -86,7 +86,7 @@ export async function buildViewXlsx(d: ViewData): Promise<Blob> {
   }
   const legend = wb.addWorksheet('Пояснение');
   [['Красная ячейка', 'нужен перевод (только для полных языков)'], ['Белая пустая', 'нет перевода, но он по желанию — менеджер этот язык не заказывал'], ['Жёлтая', 'черновик'], ['Сиреневая', 'без проверки'],
-    ['Серая', 'не используется в этом языке']].forEach((r) => legend.addRow(r));
+    ['Белая с пометкой «не актуально»', 'термин не актуален для этого языка']].forEach((r) => legend.addRow(r));
   legend.getColumn(1).width = 18; legend.getColumn(2).width = 50;
   return new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_TYPE });
 }

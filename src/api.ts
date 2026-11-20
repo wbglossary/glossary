@@ -63,7 +63,7 @@ export const can = {
 
 export type LangStatus = 'need' | 'optional' | 'draft' | 'unchecked' | 'approved' | 'unused';
 export const STATUS_LABEL: Record<LangStatus, string> = {
-  need: 'Нужен перевод', optional: 'Перевод по желанию', draft: 'Черновик', unchecked: 'Без проверки', approved: 'Согласовано', unused: 'Не используется'
+  need: 'Нужен перевод', optional: 'Перевод по желанию', draft: 'Черновик', unchecked: 'Без проверки', approved: 'Согласовано', unused: 'Не актуально для языка'
 };
 
 export interface Cell { t: string[]; s: LangStatus; f: boolean; c?: string }

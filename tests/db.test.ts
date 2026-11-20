@@ -249,7 +249,7 @@ test('язык без валидатора: подрядчик добавляе�
   assert.equal(lang(await card(r.tb), 'AM').status, 'approved');
 });
 
-test('«Не используется» и просьба «Устарел» → автоархив и возврат с прежними статусами', async () => {
+test('«Не актуально для языка» и просьба «Устарел» → автоархив и возврат с прежними статусами', async () => {
   const id = (await gl('кнопка оплаты')).items[0].id;
   let c = await call('owner', 'term_card', { p_id: id });
   await fails(call('reader', 'propose_obsolete', { p_term: id, p_reason: 'x' }), /менеджер и валидаторы/);
@@ -262,7 +262,7 @@ test('«Не используется» и просьба «Устарел» →
   c = await call('owner', 'term_card', { p_id: id });
   assert.equal(c.status, 'active', 'армянский оставил — термин действует');
   assert.equal(lang(c, 'KA').status, 'unused');
-  // остальные языки тоже «Не используется» → архив
+  // остальные языки тоже «Не актуально для языка» → архив
   await call('vhy', 'set_unused', { p_term: id, p_lang: 'HY', p_unused: true });
   const last = await call('ven', 'set_unused', { p_term: id, p_lang: 'EN', p_unused: true });
   assert.equal(last.archived, true);
@@ -277,7 +277,7 @@ test('«Не используется» и просьба «Устарел» →
   assert.equal(lang(c, 'HY').status, 'draft');
 });
 
-test('«Не используется» одного языка — пустая ячейка в выгрузке', async () => {
+test('«Не актуально для языка» одного языка — пустая ячейка в выгрузке', async () => {
   const id = (await gl('TB-00001')).items[0].id;
   await call('vhy', 'set_unused', { p_term: id, p_lang: 'HY', p_unused: true });
   const ex = await call('man', 'export_data', { p_langs: ['EN', 'KA', 'HY', 'AM'] });
@@ -541,4 +541,14 @@ test('загрузка переводов подрядчика и удалени
   await fails(call('man', 'admin_delete_project', { p_project: p.id }), /владельцу/);
   await call('owner', 'admin_delete_project', { p_project: p.id });
   assert.equal((await sql(`select 1 from projects where id = ${p.id}`)).length, 0);
+});
+
+test('«Не актуально для языка» сразу для нескольких терминов', async () => {
+  const ids = (await call('reader', 'glossary_page', { p_q: 'Двойник' })).items.map((x: any) => x.id);
+  await fails(call('tka', 'set_unused_many', { p_terms: ids, p_lang: 'KA', p_unused: true }), /только валидатор/);
+  const r = await call('ven', 'set_unused_many', { p_terms: ids, p_lang: 'EN', p_unused: true });
+  assert.equal(r.changed, ids.length);
+  assert.equal((await call('reader', 'glossary_page', { p_q: 'Двойник' })).items[0].cells.EN.s, 'unused');
+  const back = await call('ven', 'set_unused_many', { p_terms: ids, p_lang: 'EN', p_unused: false });
+  assert.equal(back.changed, ids.length);
 });
