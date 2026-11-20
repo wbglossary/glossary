@@ -6,14 +6,14 @@ import { LangCellView } from './LangCellView';
 export const FIELD_COLS = [
   { key: 'definition', label: 'Определение' },
   { key: 'examples', label: 'Примеры' },
-  { key: 'context', label: 'Значение или контекст' },
   { key: 'projects', label: 'Проекты' },
-  { key: 'comment', label: 'Комментарий' }
+  { key: 'comment', label: 'Комментарий' },
+  { key: 'lang_comment', label: 'Комментарии лингвистов (под переводом)' }
 ] as const;
 export type FieldCol = (typeof FIELD_COLS)[number]['key'];
-export const DEFAULT_COLS: FieldCol[] = ['definition', 'context', 'projects'];
+export const DEFAULT_COLS: FieldCol[] = ['definition', 'examples', 'projects', 'lang_comment'];
 
-const text = (r: GlossaryItem, k: FieldCol) => {
+const text = (r: GlossaryItem, k: Exclude<FieldCol, 'lang_comment'>) => {
   const v = k === 'projects' ? r.projects.join(', ') : (r[k] ?? '');
   return v.trim() === '—' ? '' : v;
 };
@@ -27,7 +27,8 @@ export function TermsTable({ me, items, langs, cols = DEFAULT_COLS, openId, onOp
   const pageIds = items.map((r) => r.id);
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => sel.includes(id));
   const kind = (c: string) => me.languages.find((l) => l.code === c)?.kind ?? 'full';
-  const fields = FIELD_COLS.filter((f) => cols.includes(f.key));
+  const fields = FIELD_COLS.filter((f) => cols.includes(f.key) && f.key !== 'lang_comment') as { key: Exclude<FieldCol, 'lang_comment'>; label: string }[];
+  const langComment = cols.includes('lang_comment');
   return (
     <table className="grid">
       <thead>
@@ -62,7 +63,7 @@ export function TermsTable({ me, items, langs, cols = DEFAULT_COLS, openId, onOp
                 </td>
               );
             })}
-            {langs.map((c) => <LangCellView key={c} cell={r.cells[c]} kind={kind(c)} replaced={r.replaced.filter((x) => x.lang === c)} />)}
+            {langs.map((c) => <LangCellView key={c} cell={r.cells[c]} kind={kind(c)} replaced={r.replaced.filter((x) => x.lang === c)} showComment={langComment} />)}
           </tr>
         ))}
       </tbody>

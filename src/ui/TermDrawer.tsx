@@ -69,14 +69,13 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                 <dl className="fields">
                   <dt>Определение</dt><dd>{c.definition || '—'}</dd>
                   <dt>Примеры</dt><dd>{c.examples || '—'}</dd>
-                  <dt>Значение или контекст</dt><dd>{c.context || '—'}</dd>
                   <dt>Проекты</dt><dd>
                     {editProjects ? <ProjectsForm c={c} me={me} onDone={(n) => { setEditProjects(false); if (n !== null) { setMsg({ kind: 'ok', text: n ? 'Проекты сохранены.' : 'Изменений нет.' }); reload(); onChanged?.(); } }} /> : <>
                       {c.projects.length ? c.projects.map((p) => p.name).join(', ') : 'Общий (все проекты)'}
                       {c.can.edit_ru ? <> <Button small kind="link" onClick={() => setEditProjects(true)}>Изменить</Button></> : null}
                     </>}
                   </dd>
-                  {c.comment ? <><dt>Комментарий</dt><dd>{c.comment}</dd></> : null}
+                  <dt>Комментарий</dt><dd>{c.comment || '—'}</dd>
                 </dl>
               )}
               {c.can.edit_ru && !editRu ? <Button small onClick={() => setEditRu(true)}>Изменить русскую часть</Button> : null}
@@ -85,7 +84,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
               {(() => {
                 // Пустые языки (перевода нет, полей нет) сворачиваются в одну строку; свой язык всегда виден.
                 const isEmpty = (l: TermLang) => !l.live.length && !l.unused && !l.history.length && !l.draft
-                  && !l.definition && !l.examples && !l.context && !l.forbidden.length && !me.langs.some((x) => x.code === l.code);
+                  && !l.comment && !l.forbidden.length && !me.langs.some((x) => x.code === l.code);
                 const empty = c.langs.filter(isEmpty);
                 const shown = showEmpty ? c.langs : c.langs.filter((l) => !isEmpty(l));
                 const block = (l: TermLang) => (
@@ -98,6 +97,8 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                       {l.can.approve && l.status === 'approved' ? <Button small disabled={busy} onClick={() => approve(l, false)}>Снять согласование</Button> : null}
                       {l.can.unused && l.status !== 'unused' ? <Button small onClick={() => { if (confirm_(`Пометить ${l.name} «Не используется»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не используется».'); }}>Не используется</Button> : null}
                       {l.can.unused && l.unused ? <Button small onClick={() => act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: false }), 'Язык возвращён в работу.')}>Вернуть в работу</Button> : null}
+                      {l.can.optional && l.status === 'optional' ? <Button small onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: false }), 'Теперь перевод на этот язык нужен.')}>Нужен перевод</Button> : null}
+                      {l.can.optional && l.status === 'need' && me.role !== 'validator' ? <Button small kind="link" onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: true }), 'Перевод на этот язык — по желанию.')}>По желанию</Button> : null}
                     </div>
                     {l.live.length ? l.live.map((t, i) => (
                       <div key={t.id} className="row gap" style={{ marginTop: 6 }}>
@@ -120,7 +121,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                     <LangFields l={l} />
                     {l.can.fields ? (editFields === l.code
                       ? <FieldsForm c={c} l={l} me={me} onDone={(saved) => { setEditFields(null); if (saved) { setMsg({ kind: 'ok', text: saved }); reload(); } }} />
-                      : <Button small kind="link" onClick={() => setEditFields(l.code)}>Поля языка и «Как нельзя»</Button>) : null}
+                      : <Button small kind="link" onClick={() => setEditFields(l.code)}>Комментарий лингвиста и «Как нельзя»</Button>) : null}
                   </div>
                 );
                 return (
@@ -200,12 +201,10 @@ const confirm_ = (t: string) => window.confirm(t);
 const short = (s: string | null) => (s && s.length > 140 ? s.slice(0, 140) + '…' : s);
 
 function LangFields({ l }: { l: TermLang }) {
-  if (!l.definition && !l.examples && !l.context && !l.forbidden.length && !l.draft) return null;
+  if (!l.comment && !l.forbidden.length && !l.draft) return null;
   return (
     <div className="small" style={{ marginTop: 6 }}>
-      {l.definition ? <div><span className="muted">Определение:</span> {l.definition}</div> : null}
-      {l.examples ? <div><span className="muted">Примеры:</span> {l.examples}</div> : null}
-      {l.context ? <div><span className="muted">Контекст:</span> {l.context}</div> : null}
+      {l.comment ? <div style={{ whiteSpace: 'pre-line' }}><span className="muted">Комментарий лингвиста:</span> {l.comment}</div> : null}
       {l.forbidden.length ? <div><span className="muted">Как нельзя:</span> {l.forbidden.map((f, i) => (
         <span key={i}><span className="forbidden">{f.text}</span>{f.note ? <span className="muted"> ({f.note})</span> : null}{i < l.forbidden.length - 1 ? ', ' : ''}</span>
       ))}</div> : null}
@@ -215,8 +214,8 @@ function LangFields({ l }: { l: TermLang }) {
 }
 
 function FieldsForm({ c, l, me, onDone }: { c: TermCard; l: TermLang; me: Me; onDone: (msg: string | null) => void }) {
-  const d = (l.draft ?? {}) as { definition?: string; examples?: string; context?: string; forbidden?: Forbidden[] };
-  const [f, setF] = useState({ definition: d.definition ?? l.definition, examples: d.examples ?? l.examples, context: d.context ?? l.context });
+  const d = (l.draft ?? {}) as { comment?: string; forbidden?: Forbidden[] };
+  const [f, setF] = useState({ comment: d.comment ?? l.comment });
   const [forb, setForb] = useState<Forbidden[]>(d.forbidden ?? l.forbidden);
   const [err, setErr] = useState<string | null>(null);
   const direct = l.can.approve || me.is_en_validator || (me.role === 'contractor');
@@ -228,9 +227,8 @@ function FieldsForm({ c, l, me, onDone }: { c: TermCard; l: TermLang; me: Me; on
   };
   return (
     <div className="card">
-      <label className="field"><span>Определение на этом языке</span><textarea value={f.definition} onChange={(e) => setF({ ...f, definition: e.target.value })} /></label>
-      <label className="field"><span>Примеры</span><textarea value={f.examples} onChange={(e) => setF({ ...f, examples: e.target.value })} /></label>
-      <label className="field"><span>Значение или контекст</span><input value={f.context} onChange={(e) => setF({ ...f, context: e.target.value })} /></label>
+      <label className="field"><span>Комментарий лингвиста ({l.code})</span>
+        <textarea value={f.comment} placeholder="Например: в интерфейсе приложения — только так; для сайта допустим вариант…" onChange={(e) => setF({ ...f, comment: e.target.value })} /></label>
       <div className="field"><span>Как нельзя — неправильные варианты</span>
         {forb.map((x, i) => (
           <div key={i} className="row gap">
@@ -248,7 +246,7 @@ function FieldsForm({ c, l, me, onDone }: { c: TermCard; l: TermLang; me: Me; on
 }
 
 function RuForm({ c, me, onDone }: { c: TermCard; me: Me; onDone: (n: number | null) => void }) {
-  const [f, setF] = useState({ definition: c.definition, examples: c.examples, context: c.context, comment: c.comment });
+  const [f, setF] = useState({ definition: c.definition, examples: c.examples, comment: c.comment });
   const [projects, setProjects] = useState<number[]>(c.projects.map((p) => p.id));
   const [err, setErr] = useState<string | null>(null);
   const save = async () => {
@@ -263,7 +261,6 @@ function RuForm({ c, me, onDone }: { c: TermCard; me: Me; onDone: (n: number | n
       <p className="muted small">Русский термин не меняется. Нужен другой — предложите новый термин.</p>
       {area('definition', 'Определение')}
       {area('examples', 'Примеры')}
-      <label className="field"><span>Значение или контекст</span><input value={f.context} onChange={(e) => setF({ ...f, context: e.target.value })} /></label>
       <div className="field"><span>Проекты (не выбрано — общий термин)</span>
         <div className="checks">{me.projects.filter((p) => !p.closed || projects.includes(p.id)).map((p) => (
           <label key={p.id}><input type="checkbox" checked={projects.includes(p.id)} disabled={p.closed && !projects.includes(p.id)}
@@ -336,7 +333,7 @@ function MergeDialog({ c, onCancel, onDone }: { c: TermCard; onCancel: () => voi
           <>
             <SearchBox value={q} onChange={setQ} placeholder="Найдите дубль" />
             <ul className="pick">{data?.items.filter((x) => x.id !== c.id).map((x) => (
-              <li key={x.id} onClick={() => setOther(x)}><span className="tb">{x.tb}</span> <b>{x.ru}</b> {x.context ? <span className="muted">({x.context})</span> : null}</li>
+              <li key={x.id} onClick={() => setOther(x)}><span className="tb">{x.tb}</span> <b>{x.ru}</b> {x.definition ? <span className="muted">({x.definition.slice(0, 80)})</span> : null}</li>
             ))}</ul>
           </>
         ) : (

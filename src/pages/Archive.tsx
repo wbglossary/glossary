@@ -5,7 +5,7 @@ import { Button, Confirm, Empty, Message, SearchBox, useAsync } from '../ui/kit'
 import { RequestDrawer } from '../ui/RequestDrawer';
 import { TermDrawer } from '../ui/TermDrawer';
 
-interface ArchTerm { id: number; tb: string; ru: string; context: string; version: number; reason: string; updated_at: string; updated_by: string; cells: Record<string, Cell> }
+interface ArchTerm { id: number; tb: string; ru: string; definition: string; version: number; reason: string; updated_at: string; updated_by: string; cells: Record<string, Cell> }
 
 export function ArchivePage({ me }: PageProps) {
   const [q, setQ] = useState('');
@@ -42,12 +42,12 @@ export function ArchivePage({ me }: PageProps) {
       {tab === 'terms' ? (
         <div className="table-wrap">
           <table className="grid">
-            <thead><tr><th>Номер</th><th>Русский термин</th><th>Контекст</th><th>Переводы</th><th>Почему в архиве</th><th>Когда, кто</th><th /></tr></thead>
+            <thead><tr><th>Номер</th><th>Русский термин</th><th>Определение</th><th>Переводы</th><th>Почему в архиве</th><th>Когда, кто</th><th /></tr></thead>
             <tbody>{data?.terms.map((t) => (
               <tr key={t.id}>
                 <td className="tb link" onClick={() => setOpen(t.id)}>{t.tb}</td>
                 <td className="link" onClick={() => setOpen(t.id)}><b>{t.ru}</b></td>
-                <td className="muted">{t.context}</td>
+                <td className="muted"><div className="clip" title={t.definition}>{t.definition}</div></td>
                 <td className="small">{Object.entries(t.cells).map(([l, c]) => c.t.length ? `${l}: ${c.t[0]}` : null).filter(Boolean).join(' · ')}</td>
                 <td>{t.reason}</td>
                 <td className="small">{fmtDate(t.updated_at)}<div className="muted">{t.updated_by}</div></td>

@@ -52,7 +52,7 @@ $$;
 
 create or replace function req_status_label(p_status text) returns text language sql immutable as $$
   select case p_status when 'pending' then 'На рассмотрении' when 'approved' then 'Утверждена' when 'rejected' then 'Отклонена'
-    when 'auto_removed' then 'Снята автоматически' when 'closed' then 'Закрыта' else p_status end
+    when 'auto_removed' then 'Снята автоматически' when 'closed' then 'Закрыта' when 'withdrawn' then 'Отозвана автором' else p_status end
 $$;
 
 -- Текущий пользователь. При первом входе профиль находится по почте и запоминает user_id.
@@ -142,12 +142,13 @@ create or replace function ensure_term_lang(p_term int, p_lang text) returns voi
   insert into term_langs(term_id, lang) values (p_term, p_lang) on conflict do nothing
 $$;
 
--- Статус языка у термина: need / draft / unchecked / approved / unused
+-- Статус языка у термина: need / optional (перевод по желанию) / draft / unchecked / approved / unused
 create or replace function lang_status(p_term int, p_lang text) returns text language sql stable as $$
   select case
     when t.status = 'archived' then 'unused'
     when coalesce(tl.unused, false) then 'unused'
-    when not exists (select 1 from translations x where x.term_id = p_term and x.lang = p_lang and x.status <> 'obsolete') then 'need'
+    when not exists (select 1 from translations x where x.term_id = p_term and x.lang = p_lang and x.status <> 'obsolete')
+      then case when coalesce(tl.optional, false) then 'optional' else 'need' end
     when tl.draft is not null or exists (select 1 from translations x where x.term_id = p_term and x.lang = p_lang and x.status = 'draft') then 'draft'
     when exists (select 1 from translations x where x.term_id = p_term and x.lang = p_lang and x.status = 'unchecked') then 'unchecked'
     else 'approved' end
@@ -175,7 +176,7 @@ create or replace function live_text(p_term int, p_lang text) returns text langu
    where x.term_id = p_term and x.lang = p_lang and x.status <> 'obsolete'
 $$;
 
--- Языковые поля из json (определение, примеры, контекст, «как нельзя»)
+-- Языковые поля из json (комментарий лингвиста, «как нельзя»)
 create or replace function clean_forbidden(j jsonb) returns jsonb language sql immutable as $$
   select coalesce(jsonb_agg(jsonb_build_object('text', btrim(e->>'text'), 'note', btrim(coalesce(e->>'note', ''))))
                   filter (where btrim(coalesce(e->>'text', '')) <> ''), '[]'::jsonb)
@@ -186,9 +187,7 @@ create or replace function apply_lang_fields(p_term int, p_lang text, f jsonb) r
 begin
   perform ensure_term_lang(p_term, p_lang);
   update term_langs set
-    definition = case when f ? 'definition' then btrim(coalesce(f->>'definition', '')) else definition end,
-    examples   = case when f ? 'examples' then btrim(coalesce(f->>'examples', '')) else examples end,
-    context    = case when f ? 'context' then btrim(coalesce(f->>'context', '')) else context end,
+    comment    = case when f ? 'comment' then btrim(coalesce(f->>'comment', '')) else comment end,
     forbidden  = case when f ? 'forbidden' then clean_forbidden(f->'forbidden') else forbidden end
   where term_id = p_term and lang = p_lang;
 end $$;
@@ -199,9 +198,9 @@ returns text[] language plpgsql stable as $$
 declare outv text[] := '{}'; v_key text := norm_term(p_ru); r record; l text; v text;
 begin
   if v_key <> '' then
-    for r in select t.tb, t.ru, t.context, t.status from terms t where t.ru_norm = v_key and (p_excl_term is null or t.id <> p_excl_term) order by t.tb loop
+    for r in select t.tb, t.ru, t.definition, t.status from terms t where t.ru_norm = v_key and (p_excl_term is null or t.id <> p_excl_term) order by t.tb loop
       outv := outv || ('Русский термин уже есть: ' || r.tb || ' «' || r.ru || '»' ||
-        case when r.context <> '' then ' (' || r.context || ')' else '' end || case when r.status = 'archived' then ' — в архиве' else '' end);
+        case when r.definition <> '' then ' (' || left(r.definition, 80) || ')' else '' end || case when r.status = 'archived' then ' — в архиве' else '' end);
     end loop;
     for r in select q.code, q.ru from requests q where q.status = 'pending' and q.type = 'new' and norm_term(q.ru) = v_key
                and (p_excl_req is null or q.id <> p_excl_req) loop
@@ -255,7 +254,8 @@ end $$;
 -- Видит ли валидатор/переводчик языка эту заявку
 create or replace function request_for_lang(r requests, p_lang text) returns boolean language sql stable as $$
   select case
-    when r.type = 'new' and r.lang is null then coalesce((select l.kind = 'full' and l.active from languages l where l.code = p_lang), false)
+    when r.type = 'new' and r.lang is null then coalesce((select l.active and (case when r.target_langs is null then l.kind = 'full' else l.code = any(r.target_langs) end)
+                                                           from languages l where l.code = p_lang), false)
     when r.type = 'new' and p_lang = 'EN' and not lang_has_validator(r.lang) then true
     when r.type = 'obsolete' then exists (select 1 from translations x where x.term_id = r.term_id and x.lang = p_lang and x.status <> 'obsolete')
       and not exists (select 1 from term_langs tl where tl.term_id = r.term_id and tl.lang = p_lang and tl.unused)
@@ -292,7 +292,7 @@ declare u profiles := app_profile();
 begin
   update profiles set last_seen = now() where id = u.id and (last_seen is null or last_seen < now() - interval '5 minutes');
   if u.avatar is null then
-    update profiles set avatar = (array['cat','dog','fox','panda','bunny','raccoon','owl','frog','hamster','penguin','bear','corgi','hedgehog','capybara','duckling','tiger'])[1 + floor(random() * 16)::int]
+    update profiles set avatar = (array['cat','dog','fox','panda','bunny','raccoon','owl','frog','hamster','penguin','bear','corgi','hedgehog','capybara','duckling','tiger','squirrel','boar'])[1 + floor(random() * 18)::int]
      where id = u.id returning * into u;
   end if;
   return jsonb_build_object('id', u.id, 'email', u.email, 'name', u.name, 'role', u.role, 'lang', u.lang, 'avatar', u.avatar,
@@ -315,7 +315,7 @@ create or replace function set_avatar(p_avatar text) returns void
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile();
 begin
-  if p_avatar not in ('cat','dog','fox','panda','bunny','raccoon','owl','frog','hamster','penguin','bear','corgi','hedgehog','capybara','duckling','tiger') then
+  if p_avatar not in ('cat','dog','fox','panda','bunny','raccoon','owl','frog','hamster','penguin','bear','corgi','hedgehog','capybara','duckling','tiger','squirrel','boar') then
     perform app_error('Такого аватара нет.');
   end if;
   update profiles set avatar = p_avatar where id = u.id;
@@ -471,7 +471,8 @@ create or replace function lang_cells(p_term int) returns jsonb language sql sta
       't', coalesce((select jsonb_agg(x.text order by x.sort, x.id) from translations x
                       where x.term_id = p_term and x.lang = l.code and x.status in ('approved','unchecked')), '[]'),
       's', lang_status(p_term, l.code),
-      'f', coalesce((select jsonb_array_length(tl.forbidden) > 0 from term_langs tl where tl.term_id = p_term and tl.lang = l.code), false))), '{}')
+      'f', coalesce((select jsonb_array_length(tl.forbidden) > 0 from term_langs tl where tl.term_id = p_term and tl.lang = l.code), false),
+      'c', coalesce((select tl.comment from term_langs tl where tl.term_id = p_term and tl.lang = l.code), ''))), '{}')
   from languages l where l.active
 $$;
 
@@ -490,7 +491,7 @@ begin
        and search_match(t, p_q)
   ), pg as (select * from base order by rnk, lower(ru), tb limit v_size offset (greatest(p_page, 1) - 1) * v_size)
   select (select count(*) from base), coalesce(jsonb_agg(jsonb_build_object(
-      'id', pg.id, 'tb', pg.tb, 'ru', pg.ru, 'context', pg.context, 'version', pg.version,
+      'id', pg.id, 'tb', pg.tb, 'ru', pg.ru, 'version', pg.version,
       'definition', pg.definition, 'examples', pg.examples, 'comment', pg.comment,
       'projects', coalesce((select jsonb_agg(pr.name order by pr.name) from term_projects tp join projects pr on pr.id = tp.project_id where tp.term_id = pg.id), '[]'),
       'cells', lang_cells(pg.id),
@@ -509,7 +510,7 @@ create or replace function recent_terms(p_limit int default 10) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile();
 begin
-  return coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'tb', t.tb, 'ru', t.ru, 'context', t.context, 'definition', t.definition, 'created_at', t.created_at, 'cells', lang_cells(t.id))
+  return coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'created_at', t.created_at, 'cells', lang_cells(t.id))
      order by t.created_at desc) from (select * from terms where status = 'active' order by created_at desc, id desc limit least(p_limit, 50)) t), '[]');
 end $$;
 
@@ -523,7 +524,7 @@ begin
   if not found then return null; end if;
   if t.status = 'archived' and u.role not in ('owner','validator') then return null; end if;
   return jsonb_build_object(
-    'id', t.id, 'tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'examples', t.examples, 'context', t.context, 'comment', t.comment,
+    'id', t.id, 'tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'examples', t.examples, 'comment', t.comment,
     'status', t.status, 'archive_reason', t.archive_reason, 'version', t.version,
     'created_at', t.created_at, 'created_by', display_name(u, t.created_by), 'updated_at', t.updated_at, 'updated_by', display_name(u, t.updated_by),
     'projects', coalesce((select jsonb_agg(jsonb_build_object('id', pr.id, 'name', pr.name) order by pr.name) from term_projects tp join projects pr on pr.id = tp.project_id where tp.term_id = t.id), '[]'),
@@ -539,7 +540,7 @@ begin
     'langs', (select jsonb_agg(jsonb_build_object(
         'code', l.code, 'name', l.name, 'kind', l.kind, 'has_validator', lang_has_validator(l.code),
         'status', lang_status(t.id, l.code),
-        'definition', coalesce(tl.definition, ''), 'examples', coalesce(tl.examples, ''), 'context', coalesce(tl.context, ''),
+        'comment', coalesce(tl.comment, ''), 'optional', coalesce(tl.optional, false),
         'forbidden', coalesce(tl.forbidden, '[]'), 'draft', tl.draft, 'unused', coalesce(tl.unused, false),
         'live', coalesce((select jsonb_agg(jsonb_build_object('id', x.id, 'text', x.text, 'status', x.status, 'sort', x.sort) order by x.sort, x.id)
                  from translations x where x.term_id = t.id and x.lang = l.code and x.status <> 'obsolete'), '[]'),
@@ -551,6 +552,7 @@ begin
           'edit', t.status = 'active' and (is_validator_of(u, l.code) or contractor_direct(u, l.code)),
           'request', t.status = 'active' and u.role in ('contractor','translator') and l.code = any(propose_langs(u)) and not contractor_direct(u, l.code),
           'unused', t.status = 'active' and is_validator_of(u, l.code),
+          'optional', t.status = 'active' and (can_edit_ru(u) or is_validator_of(u, l.code)),
           'fields', t.status = 'active' and (works_lang(u, l.code) or is_en_validator(u) or contractor_direct(u, l.code)))
       ) order by case when l.code = 'EN' then 0 else 1 end, l.sort, l.code)
       from languages l left join term_langs tl on tl.term_id = t.id and tl.lang = l.code where l.active),
@@ -582,7 +584,7 @@ declare u profiles := app_profile(); v_key text := norm_term(p_ru);
 begin
   if length(v_key) < 2 then return '[]'; end if;
   return coalesce((select jsonb_agg(x) from (
-    select t.id, t.tb, t.ru, t.context, t.status, (t.ru_norm = v_key) as exact from terms t
+    select t.id, t.tb, t.ru, t.definition, t.status, (t.ru_norm = v_key) as exact from terms t
      where t.ru_norm = v_key or t.ru_norm like '%' || v_key || '%' or (length(v_key) >= 4 and t.ru_norm % v_key)
      order by (t.ru_norm = v_key) desc, similarity(t.ru_norm, v_key) desc, t.ru limit 8) x), '[]');
 end $$;
@@ -607,7 +609,7 @@ declare
   v_reason text := btrim(coalesce(p_input->>'reason', ''));
   v_ru text; v_one text; v_term int; v_target int; t terms; v_matches jsonb; v_warn text[]; v_code text; v_req int;
   v_projects int[]; v_fields jsonb := coalesce(p_input->'lang_fields', '{}'); v_old translations; v_new translations; v_status text;
-  v_direct boolean;
+  v_direct boolean; v_targets text[];
 begin
   if u.role = 'reader' then perform app_error('Читатель не может предлагать термины.'); end if;
   if v_lang is not null then
@@ -625,7 +627,7 @@ begin
   if v_type = 'new' then
     v_ru := btrim(coalesce(p_input->>'ru', ''));
     if v_ru = '' then perform app_error('Впишите русский термин.'); end if;
-    select jsonb_agg(jsonb_build_object('id', x.id, 'tb', x.tb, 'ru', x.ru, 'context', x.context) order by x.tb) into v_matches
+    select jsonb_agg(jsonb_build_object('id', x.id, 'tb', x.tb, 'ru', x.ru, 'definition', x.definition) order by x.tb) into v_matches
       from terms x where x.ru_norm = norm_term(v_ru) and x.status = 'active';
     if v_matches is not null then
       if nullif(p_input->>'same_as', '') is not null then
@@ -638,15 +640,20 @@ begin
       if coalesce((p_input->>'new_meaning')::boolean, false) is not true then
         return jsonb_build_object('status', 'repeat', 'matches', v_matches);
       end if;
-      if btrim(coalesce(p_input->>'context', '')) = '' then
-        perform app_error('Это другой смысл того же слова — заполните «Значение или контекст», чтобы их различать.');
+      if btrim(coalesce(p_input->>'definition', '')) = '' then
+        perform app_error('Это другой смысл того же слова — заполните «Определение», чтобы их различать.');
       end if;
     end if;
     v_warn := duplicate_warnings(v_ru, case when v_lang is not null and v_tr <> '' then jsonb_build_object(v_lang, v_tr) else '{}'::jsonb end, null, null);
     v_code := 'Z-' || lpad(nextval('req_seq')::text, 5, '0');
-    insert into requests(code, type, ru, definition, examples, context, comment, project_ids, lang, translation, lang_fields, warnings, author_id)
+    -- менеджер выбирает языки, на которые нужен перевод; остальные получат «по желанию»
+    if v_lang is null and p_input ? 'target_langs' and jsonb_typeof(p_input->'target_langs') = 'array' then
+      v_targets := array(select l.code from languages l where l.active and l.code in (select jsonb_array_elements_text(p_input->'target_langs')));
+      if cardinality(v_targets) = 0 then perform app_error('Отметьте хотя бы один язык перевода.'); end if;
+    end if;
+    insert into requests(code, type, ru, definition, examples, comment, project_ids, lang, translation, lang_fields, warnings, author_id, target_langs)
     values (v_code, 'new', v_ru, btrim(coalesce(p_input->>'definition', '')), btrim(coalesce(p_input->>'examples', '')),
-            btrim(coalesce(p_input->>'context', '')), btrim(coalesce(p_input->>'comment', '')), v_projects, v_lang, v_tr, v_fields, v_warn, u.id)
+            btrim(coalesce(p_input->>'comment', '')), v_projects, v_lang, v_tr, v_fields, v_warn, u.id, v_targets)
     returning id into v_req;
     if v_lang is not null and v_tr <> '' then
       insert into request_translations(request_id, lang, text, author_id) values (v_req, v_lang, v_tr, u.id);
@@ -737,7 +744,7 @@ begin
   update requests set
     ru = case when r.type = 'new' and coalesce(btrim(p_input->>'ru'), '') <> '' then btrim(p_input->>'ru') else ru end,
     definition = coalesce(btrim(p_input->>'definition'), definition), examples = coalesce(btrim(p_input->>'examples'), examples),
-    context = coalesce(btrim(p_input->>'context'), context), comment = coalesce(btrim(p_input->>'comment'), comment),
+    comment = coalesce(btrim(p_input->>'comment'), comment),
     translation = coalesce(btrim(p_input->>'translation'), translation), reason = coalesce(btrim(p_input->>'reason'), reason),
     version = version + 1
   where id = r.id;
@@ -779,8 +786,13 @@ begin
       return jsonb_build_object('status', 'confirm', 'code', r.code, 'warnings', to_jsonb(v_warn));
     end if;
     v_tb := 'TB-' || lpad(nextval('tb_seq')::text, 5, '0');
-    insert into terms(tb, ru, definition, examples, context, comment, created_by, updated_by)
-    values (v_tb, r.ru, r.definition, r.examples, r.context, r.comment, u.id, u.id) returning id into v_term;
+    insert into terms(tb, ru, definition, examples, comment, created_by, updated_by)
+    values (v_tb, r.ru, r.definition, r.examples, r.comment, u.id, u.id) returning id into v_term;
+    if r.target_langs is not null then
+      insert into term_langs(term_id, lang, optional)
+      select v_term, l.code, true from languages l where not l.code = any(r.target_langs)
+      on conflict (term_id, lang) do update set optional = true;
+    end if;
     insert into term_projects select v_term, p.id from projects p where p.id = any(r.project_ids);
     for rt in select * from request_translations x where x.request_id = r.id loop
       v_status := case when rt.lang = v_l then 'approved' when not lang_has_validator(rt.lang) then 'unchecked' else 'draft' end;
@@ -855,8 +867,11 @@ end $$;
 
 create or replace function request_json(viewer profiles, r requests) returns jsonb language sql stable as $$
   select jsonb_build_object('id', r.id, 'code', r.code, 'type', r.type, 'type_label', req_type_label(r.type), 'status', r.status,
-    'status_label', req_status_label(r.status), 'ru', r.ru, 'definition', r.definition, 'examples', r.examples, 'context', r.context,
-    'comment', r.comment, 'lang', r.lang, 'translation', r.translation, 'lang_fields', r.lang_fields, 'reason', r.reason, 'warnings', to_jsonb(r.warnings),
+    'status_label', req_status_label(r.status), 'ru', r.ru, 'definition', r.definition, 'examples', r.examples,
+    'comment', r.comment, 'target_langs', to_jsonb(r.target_langs),
+    'can_withdraw', r.author_id = viewer.id and r.status = 'pending'
+      and not exists (select 1 from request_translations rt where rt.request_id = r.id and rt.author_id is distinct from r.author_id)
+      and not exists (select 1 from request_answers a where a.request_id = r.id), 'lang', r.lang, 'translation', r.translation, 'lang_fields', r.lang_fields, 'reason', r.reason, 'warnings', to_jsonb(r.warnings),
     'author', author_json(viewer, r.author_id), 'mine', r.author_id = viewer.id, 'created_at', r.created_at,
     'decided_by', case when r.decided_by is not null then display_name(viewer, r.decided_by) end, 'decided_at', r.decided_at, 'version', r.version, 'term_id', r.term_id,
     'tb', (select tb from terms where id = r.term_id),
@@ -1052,7 +1067,7 @@ begin
   return jsonb_build_object('text', live_text(t.id, x.lang), 'status', lang_status(t.id, x.lang));
 end $$;
 
--- Языковые поля (определение, примеры, контекст, «Как нельзя»). Переводчик — черновиком;
+-- Языковые поля (комментарий лингвиста, «Как нельзя»). Переводчик — черновиком;
 -- валидатор языка, валидатор английского, подрядчик на языке без валидатора — сразу.
 create or replace function edit_lang_fields(p_term int, p_lang text, p_fields jsonb, p_version int) returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -1061,14 +1076,13 @@ begin
   select * into t from terms where id = p_term for update;
   if not found or t.status <> 'active' then perform app_error('Термин не найден или в архиве.'); end if;
   if t.version <> p_version then perform conflict_error(); end if;
-  v_f := jsonb_build_object('definition', btrim(coalesce(p_fields->>'definition', '')), 'examples', btrim(coalesce(p_fields->>'examples', '')),
-    'context', btrim(coalesce(p_fields->>'context', '')), 'forbidden', clean_forbidden(p_fields->'forbidden'));
+  v_f := jsonb_build_object('comment', btrim(coalesce(p_fields->>'comment', '')), 'forbidden', clean_forbidden(p_fields->'forbidden'));
   perform ensure_term_lang(t.id, p_lang);
   select * into tl from term_langs where term_id = t.id and lang = p_lang;
   if is_validator_of(u, p_lang) or is_en_validator(u) or contractor_direct(u, p_lang) then
     perform apply_lang_fields(t.id, p_lang, v_f);
     perform log_event(u, 'Изменены поля языка', t.tb, null, p_lang,
-      jsonb_build_object('definition', tl.definition, 'examples', tl.examples, 'context', tl.context, 'forbidden', tl.forbidden)::text, v_f::text);
+      jsonb_build_object('comment', tl.comment, 'forbidden', tl.forbidden)::text, v_f::text);
   elsif works_lang(u, p_lang) then
     update term_langs set draft = v_f where term_id = t.id and lang = p_lang;
     perform log_event(u, 'Поля языка — черновик', t.tb, null, p_lang, null, v_f::text);
@@ -1098,6 +1112,40 @@ begin
     v_archived := check_auto_archive(u, t.id);
   end if;
   return jsonb_build_object('archived', v_archived);
+end $$;
+
+
+-- Автор отзывает заявку, пока по ней никто ничего не сделал (не вписал перевод, не ответил, не решил)
+create or replace function withdraw_request(p_request int) returns void
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); r requests;
+begin
+  select * into r from requests where id = p_request for update;
+  if not found then perform app_error('Заявка не найдена.'); end if;
+  if r.author_id <> u.id then perform app_error('Отозвать заявку может только её автор.'); end if;
+  if r.status <> 'pending' then perform app_error('Заявку уже рассмотрели — отозвать нельзя.'); end if;
+  if exists (select 1 from request_translations rt where rt.request_id = r.id and rt.author_id is distinct from r.author_id)
+     or exists (select 1 from request_answers a where a.request_id = r.id) then
+    perform app_error('По заявке уже начали работать (вписали перевод или ответили) — отозвать нельзя. Напишите комментарий в заявке.');
+  end if;
+  update requests set status = 'withdrawn', decided_by = u.id, decided_at = now(), version = version + 1 where id = r.id;
+  perform log_event(u, 'Заявка отозвана автором', (select tb from terms where id = r.term_id), r.code, r.lang, null, null, req_type_label(r.type) || ' «' || r.ru || '»');
+end $$;
+
+-- «Перевод по желанию» / «Нужен перевод» для языка термина
+create or replace function set_lang_optional(p_term int, p_lang text, p_optional boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); t terms;
+begin
+  if not (can_edit_ru(u) or is_validator_of(u, p_lang)) then
+    perform app_error('Менять это могут менеджер, владелец и валидатор языка.');
+  end if;
+  select * into t from terms where id = p_term for update;
+  if not found or t.status <> 'active' then perform app_error('Термин не найден или в архиве.'); end if;
+  perform ensure_term_lang(t.id, p_lang);
+  update term_langs set optional = p_optional where term_id = t.id and lang = p_lang;
+  perform log_event(u, case when p_optional then 'Язык: перевод по желанию' else 'Язык: нужен перевод' end, t.tb, null, p_lang);
+  perform bump_term(t.id, u.id);
 end $$;
 
 -- =====================================================================
@@ -1169,12 +1217,12 @@ begin
   select * into t from terms where id = p_term for update;
   if not found then perform app_error('Термин не найден.'); end if;
   if t.version <> p_version then perform conflict_error(); end if;
-  foreach k in array array['definition','examples','context','comment'] loop
+  foreach k in array array['definition','examples','comment'] loop
     if not p_fields ? k then continue; end if;
     v_new := btrim(coalesce(p_fields->>k, ''));
-    v_old := case k when 'definition' then t.definition when 'examples' then t.examples when 'context' then t.context else t.comment end;
+    v_old := case k when 'definition' then t.definition when 'examples' then t.examples else t.comment end;
     if v_new = v_old then continue; end if;
-    lbl := case k when 'definition' then 'Определение' when 'examples' then 'Примеры' when 'context' then 'Значение или контекст' else 'Комментарий' end;
+    lbl := case k when 'definition' then 'Определение' when 'examples' then 'Примеры' else 'Комментарий' end;
     execute format('update terms set %I = $1 where id = $2', k) using v_new, t.id;
     perform log_event(u, 'Изменено поле «' || lbl || '» (рус.)', t.tb, null, null, v_old, v_new);
     n := n + 1;
@@ -1295,9 +1343,8 @@ begin
     perform ensure_term_lang(k.id, tld.lang);
     select * into tlk from term_langs where term_id = k.id and lang = tld.lang;
     update term_langs set
-      definition = case when tlk.definition = '' then tld.definition else tlk.definition end,
-      examples = case when tlk.examples = '' then tld.examples else tlk.examples end,
-      context = case when tlk.context = '' then tld.context else tlk.context end,
+      comment = case when tlk.comment = '' then tld.comment when tld.comment = '' or tld.comment = tlk.comment then tlk.comment else tlk.comment || E'\n' || tld.comment end,
+      optional = tlk.optional and tld.optional,
       forbidden = tlk.forbidden || tld.forbidden,
       unused = tlk.unused and tld.unused
     where term_id = k.id and lang = tld.lang;
@@ -1356,7 +1403,7 @@ begin
   ), sel as (
     select * from base b where
       case p_tab
-        when 'new' then b.st = 'need' and exists (select 1 from translations x where x.term_id = b.id and x.lang <> p_lang and x.status = 'approved')
+        when 'new' then b.st in ('need','optional') and exists (select 1 from translations x where x.term_id = b.id and x.lang <> p_lang and x.status = 'approved')
         when 'review' then exists (select 1 from translations x where x.term_id = b.id and x.lang = p_lang and x.status = 'unchecked')
         else (p_status = 'all' or b.st = p_status) end
   ), pg as (
@@ -1364,7 +1411,8 @@ begin
     limit v_size offset (greatest(p_page, 1) - 1) * v_size
   )
   select (select count(*) from sel), coalesce(jsonb_agg(jsonb_build_object(
-      'id', pg.id, 'tb', pg.tb, 'ru', pg.ru, 'definition', pg.definition, 'context', pg.context, 'version', pg.version, 'status', pg.st,
+      'id', pg.id, 'tb', pg.tb, 'ru', pg.ru, 'definition', pg.definition, 'examples', pg.examples, 'comment', pg.comment, 'version', pg.version, 'status', pg.st,
+      'lang_comment', coalesce((select tl.comment from term_langs tl where tl.term_id = pg.id and tl.lang = p_lang), ''),
       'created_at', pg.created_at,
       'projects', coalesce((select jsonb_agg(pr.name order by pr.name) from term_projects tp join projects pr on pr.id = tp.project_id where tp.term_id = pg.id), '[]'),
       'text', live_text(pg.id, p_lang),
@@ -1397,7 +1445,7 @@ begin
   if u.role not in ('owner','validator') then perform app_error('Архив видят владелец и валидаторы.'); end if;
   return jsonb_build_object(
     'can_restore', is_owner(u) or is_en_validator(u), 'can_delete', is_owner(u),
-    'terms', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'tb', t.tb, 'ru', t.ru, 'context', t.context, 'version', t.version,
+    'terms', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'version', t.version,
         'reason', case t.archive_reason when 'all_unused' then 'все языки «Не используется»' else 'вручную' end,
         'updated_at', t.updated_at, 'updated_by', display_name(u, t.updated_by), 'cells', lang_cells(t.id)) order by lower(t.ru))
       from (select * from terms t where t.status = 'archived' and search_match(t, p_q) order by lower(ru) limit 1000) t), '[]'),
@@ -1445,11 +1493,11 @@ begin
     'languages', (select coalesce(jsonb_agg(jsonb_build_object('code', l.code, 'smartcat', l.smartcat_code) order by case when l.code = 'EN' then 0 else 1 end, l.sort, l.code), '[]')
                     from languages l where l.code = any(v_langs)),
     'terms', coalesce((select jsonb_agg(jsonb_build_object('tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'examples', t.examples,
-        'context', t.context, 'comment', t.comment, 'created_at', t.created_at, 'updated_at', t.updated_at,
+        'comment', t.comment, 'created_at', t.created_at, 'updated_at', t.updated_at,
         'tr', coalesce((select jsonb_object_agg(z.lang, z.list) from (select x.lang, jsonb_agg(x.text order by x.sort, x.id) list
                  from translations x left join term_langs tl on tl.term_id = x.term_id and tl.lang = x.lang
                 where x.term_id = t.id and x.status = 'approved' and x.lang = any(v_langs) and not coalesce(tl.unused, false) group by x.lang) z), '{}'),
-        'fields', coalesce((select jsonb_object_agg(tl.lang, jsonb_build_object('definition', tl.definition, 'examples', tl.examples, 'context', tl.context, 'forbidden', tl.forbidden))
+        'fields', coalesce((select jsonb_object_agg(tl.lang, jsonb_build_object('comment', tl.comment, 'forbidden', tl.forbidden))
                  from term_langs tl where tl.term_id = t.id and tl.lang = any(v_langs) and not tl.unused), '{}'))
         order by lower(t.ru), t.tb)
       from terms t where t.status = 'active'
@@ -1464,7 +1512,7 @@ begin
   if not can_export(u) then perform app_error('Выгружать глоссарий могут менеджер и владелец.'); end if;
   return jsonb_build_object(
     'languages', (select jsonb_agg(jsonb_build_object('code', l.code, 'kind', l.kind) order by case when l.code = 'EN' then 0 else 1 end, l.sort) from languages l where l.active),
-    'terms', coalesce((select jsonb_agg(jsonb_build_object('tb', t.tb, 'ru', t.ru, 'context', t.context,
+    'terms', coalesce((select jsonb_agg(jsonb_build_object('tb', t.tb, 'ru', t.ru, 'definition', t.definition,
         'projects', coalesce((select string_agg(pr.name, ', ' order by pr.name) from term_projects tp join projects pr on pr.id = tp.project_id where tp.term_id = t.id), ''),
         'cells', lang_cells(t.id)) order by lower(t.ru), t.tb)
       from terms t where t.status = 'active'
@@ -1692,6 +1740,77 @@ begin
     null, null, null, o.name, v);
 end $$;
 
+-- Владелец удаляет закрытый проект. Термины остаются, у них просто пропадает этот проект.
+create or replace function admin_delete_project(p_project int) returns int
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); o projects; n int;
+begin
+  perform require_owner(u);
+  select * into o from projects where id = p_project for update;
+  if not found then perform app_error('Проект не найден.'); end if;
+  if not o.closed then perform app_error('Удалить можно только закрытый проект. Сначала закройте его.'); end if;
+  delete from term_projects where project_id = o.id;
+  get diagnostics n = row_count;
+  update requests set project_ids = array_remove(project_ids, o.id) where o.id = any(project_ids);
+  delete from projects where id = o.id;
+  perform log_event(u, 'Проект удалён', null, null, null, o.name, null, 'Убран у терминов: ' || n);
+  return n;
+end $$;
+
+-- =====================================================================
+-- API: загрузка готовых переводов подрядчика (сокращённые языки и языки без валидатора)
+-- p_rows: [{"tb": "TB-00012", "ru": "...", "text": "..."}]. Сначала p_apply=false — показать,
+-- что с чем совпало; потом p_apply=true — добавить переводы со статусом «Без проверки».
+-- =====================================================================
+create or replace function import_translations(p_lang text, p_rows jsonb, p_apply boolean default false) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); e jsonb; i int := 0; v_tb text; v_ru text; v_text text; v_term int; v_n int;
+  v_st text; v_cur text; outv jsonb := '[]'; v_add int := 0; t terms; v text; k int;
+begin
+  if u.role not in ('manager','owner') then perform app_error('Загружать переводы подрядчиков могут менеджер и владелец.'); end if;
+  if not exists (select 1 from languages l where l.code = p_lang and l.active and (l.kind = 'short' or not lang_has_validator(l.code))) then
+    perform app_error('Загружать можно только на сокращённые языки и языки без валидатора. У ' || lang_gen(p_lang) || ' переводы ведёт валидатор.');
+  end if;
+  if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then perform app_error('В файле нет строк.'); end if;
+  if jsonb_array_length(p_rows) > 5000 then perform app_error('Слишком много строк за раз (больше 5000). Разделите файл.'); end if;
+  for e in select * from jsonb_array_elements(p_rows) loop
+    i := i + 1;
+    v_tb := upper(btrim(coalesce(e->>'tb', ''))); v_ru := btrim(coalesce(e->>'ru', '')); v_text := btrim(coalesce(e->>'text', ''));
+    v_term := null; v_cur := null;
+    if v_tb ~ '^TB-\d+$' then
+      select id into v_term from terms where tb = v_tb and status = 'active';
+    end if;
+    if v_term is null and v_ru <> '' then
+      select count(*), min(id) into v_n, v_term from terms where ru_norm = norm_term(v_ru) and status = 'active';
+      if v_n > 1 then v_term := null; v_st := 'ambiguous'; end if;
+    end if;
+    if v_text = '' then v_st := 'empty';
+    elsif v_term is null then v_st := coalesce(case when v_st = 'ambiguous' then v_st end, 'not_found');
+    else
+      select string_agg(x.text, '; ' order by x.sort, x.id) into v_cur from translations x
+       where x.term_id = v_term and x.lang = p_lang and x.status <> 'obsolete';
+      if v_cur is null then v_st := 'add';
+      elsif exists (select 1 from translations x where x.term_id = v_term and x.lang = p_lang and x.status <> 'obsolete' and x.text_norm = norm_term(v_text))
+        then v_st := 'same';
+      else v_st := 'differs'; end if;
+    end if;
+    if p_apply and v_st = 'add' then
+      select * into t from terms where id = v_term for update;
+      k := 1;
+      foreach v in array split_variants(v_text) loop
+        perform add_translation(t.id, p_lang, v, 'unchecked', u.id, k); k := k + 1;
+      end loop;
+      perform log_event(u, 'Загружен перевод подрядчика', t.tb, null, p_lang, null, v_text, 'Без проверки');
+      perform bump_term(t.id, u.id);
+      v_add := v_add + 1;
+    end if;
+    outv := outv || jsonb_build_object('row', i, 'tb', (select tb from terms where id = v_term), 'ru', coalesce((select ru from terms where id = v_term), v_ru),
+      'text', v_text, 'current', v_cur, 'status', v_st);
+    v_st := null;
+  end loop;
+  return jsonb_build_object('rows', outv, 'added', v_add);
+end $$;
+
 -- =====================================================================
 -- Вход только для добавленных владельцем людей
 -- =====================================================================
@@ -1729,7 +1848,8 @@ begin
     'export_data(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',
     'admin_users()', 'admin_create_user(text, text, text, text, jsonb)', 'admin_update_user(integer, text, text, text, jsonb)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
-    'admin_add_project(text)', 'admin_update_project(integer, text, boolean)',
+    'admin_add_project(text)', 'admin_update_project(integer, text, boolean)', 'admin_delete_project(integer)',
+    'withdraw_request(integer)', 'set_lang_optional(integer, text, boolean)', 'import_translations(text, jsonb, boolean)',
     'submit_feedback(text, text, text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'
   ] loop
     execute 'grant execute on function ' || f || ' to authenticated';

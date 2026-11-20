@@ -187,12 +187,16 @@ function Projects({ me, act }: { me: PageProps['me']; act: Act }) {
               <td className="nowrap">
                 {names[p.id] !== undefined && names[p.id] !== p.name ? <Button small kind="primary" onClick={() => act(() => rpc('admin_update_project', { p_project: p.id, p_name: names[p.id], p_closed: p.closed }), 'Проект переименован.')}>Сохранить</Button> : null}
                 <Button small onClick={() => act(() => rpc('admin_update_project', { p_project: p.id, p_name: p.name, p_closed: !p.closed }), p.closed ? 'Проект открыт.' : 'Проект закрыт.')}>{p.closed ? 'Открыть' : 'Закрыть'}</Button>
+                {p.closed ? <Button small kind="danger" onClick={() => {
+                  if (!window.confirm(`Удалить проект «${p.name}» навсегда? Термины останутся в глоссарии, у них просто пропадёт этот проект. Отменить нельзя.`)) return;
+                  act(() => rpc<number>('admin_delete_project', { p_project: p.id }), `Проект «${p.name}» удалён.`);
+                }}>Удалить</Button> : null}
               </td>
             </tr>
           ))}</tbody>
         </table>
       </div>
-      <p className="muted small">Закрытый проект нельзя выбрать в новых заявках, но его термины остаются в глоссарии и выгрузке.</p>
+      <p className="muted small">Закрытый проект нельзя выбрать в новых заявках, но его термины остаются в глоссарии и выгрузке. Удалить можно только закрытый проект: термины останутся, у них пропадёт этот проект.</p>
       <div className="card row gap">
         <input placeholder="Название нового проекта" value={name} onChange={(e) => setName(e.target.value)} />
         <Button kind="primary" onClick={() => act(() => rpc('admin_add_project', { p_name: name }), 'Проект добавлен.', () => setName(''))}>Добавить проект</Button>

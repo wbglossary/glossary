@@ -95,7 +95,6 @@ create table terms (
   ru_norm        text generated always as (norm_term(ru)) stored,
   definition     text not null default '',
   examples       text not null default '',
-  context        text not null default '',
   comment        text not null default '',
   status         text not null default 'active' check (status in ('active','archived')),
   archive_reason text,                          -- manual / all_unused
@@ -121,16 +120,15 @@ create table term_projects (
   primary key (term_id, project_id)
 );
 
--- Языковая часть термина: поля на языке, «Как нельзя», «Не используется», черновик полей
+-- Языковая часть термина: комментарий лингвиста, «Как нельзя», «Не используется», черновик полей
 create table term_langs (
   term_id    int  not null references terms(id) on delete cascade,
   lang       text not null references languages(code),
-  definition text not null default '',
-  examples   text not null default '',
-  context    text not null default '',
+  comment    text not null default '',          -- «Комментарий лингвиста» этого языка
   forbidden  jsonb not null default '[]',      -- [{"text": "...", "note": "..."}]
   draft      jsonb,                             -- изменения полей от переводчика, ждут валидатора
   unused     boolean not null default false,    -- «Не используется»
+  optional   boolean not null default false,    -- перевод по желанию: менеджер не заказывал этот язык
   primary key (term_id, lang)
 );
 
@@ -159,18 +157,18 @@ create table requests (
   id             serial primary key,
   code           text not null unique,          -- Z-00001
   type           text not null check (type in ('new','translation','variant','replace','obsolete')),
-  status         text not null default 'pending' check (status in ('pending','approved','rejected','auto_removed','closed')),
+  status         text not null default 'pending' check (status in ('pending','approved','rejected','auto_removed','closed','withdrawn')),
   term_id        int references terms(id) on delete set null,
   target_translation_id int references translations(id) on delete set null,
   ru             text not null default '',
   definition     text not null default '',
   examples       text not null default '',
-  context        text not null default '',
   comment        text not null default '',
   project_ids    int[] not null default '{}',
   lang           text references languages(code),  -- язык перевода (null — заявка менеджера «на все языки»)
   translation    text not null default '',
-  lang_fields    jsonb not null default '{}',   -- определение/примеры/контекст/«как нельзя» на языке
+  lang_fields    jsonb not null default '{}',   -- комментарий лингвиста/«как нельзя» на языке
+  target_langs   text[],                        -- заявка менеджера: на какие языки нужен перевод (null — на все полные)
   reason         text not null default '',
   warnings       text[] not null default '{}',
   author_id      int references profiles(id),

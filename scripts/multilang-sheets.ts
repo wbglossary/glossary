@@ -91,8 +91,9 @@ export async function runMultilang(tx: Db, dir: string) {
       if (!ru) continue;
       if (/^[\d\s.,/-]+$/.test(ru)) { R.skipped.push(`${where}: «${ru}» — не похоже на термин (только цифры)`); continue; }
       const definition = v(spec.definition);
-      const context = [v(spec.context), spec.category !== undefined && v(spec.category) ? `Категория: ${v(spec.category)}` : ''].filter(Boolean).join('\n');
-      const comment = [v(spec.lqa) && `LQA: ${v(spec.lqa)}`, v(spec.ruVariants) && `Варианты в маркетинге: ${v(spec.ruVariants)}`].filter(Boolean).join('\n');
+      // «Значение или контекст» больше нет — то, что в таблице было контекстом, идёт в общий комментарий
+      const comment = [v(spec.context), spec.category !== undefined && v(spec.category) ? `Категория: ${v(spec.category)}` : '',
+        v(spec.lqa) && `LQA: ${v(spec.lqa)}`, v(spec.ruVariants) && `Варианты в маркетинге: ${v(spec.ruVariants)}`].filter(Boolean).join('\n');
       const cells = spec.langs.map((l) => ({ ...l, text: v(l.col), status: spec.status(row, rowNo, l.col),
         langContext: [l.variants !== undefined && v(l.variants) ? `Варианты: ${v(l.variants)}` : '', l.note !== undefined ? v(l.note) : ''].filter(Boolean).join('\n') }))
         .filter((c) => c.text && langsOk.has(c.lang));
@@ -111,16 +112,15 @@ export async function runMultilang(tx: Db, dir: string) {
       const fillTerm = async (id: number, tb: string, isNew: boolean) => {
         const r = await tx`insert into term_projects(term_id, project_id) values (${id}, ${pid}) on conflict do nothing returning term_id`;
         if (r.length && !isNew) R.proj.push(`${tb} «${t?.ru ?? ru}» + проект ${spec.project}`);
-        const [cur] = await tx`select definition, context, comment from terms where id = ${id}`;
+        const [cur] = await tx`select definition, comment from terms where id = ${id}`;
         const upd: string[] = [];
         if (definition && !clean(cur.definition)) { await tx`update terms set definition = ${definition}, updated_at = now() where id = ${id}`; upd.push('определение'); }
-        if (context && !clean(cur.context)) { await tx`update terms set context = ${context}, updated_at = now() where id = ${id}`; upd.push('контекст'); }
         if (comment && !cur.comment.includes(comment)) { await tx`update terms set comment = ${[cur.comment, comment].filter(Boolean).join('\n')}, updated_at = now() where id = ${id}`; upd.push('комментарий'); }
         for (const c of cells) {
           if (!c.langContext) continue;
           await tx`select ensure_term_lang(${id}, ${c.lang})`;
-          const [tl] = await tx`select context from term_langs where term_id = ${id} and lang = ${c.lang}`;
-          if (!tl.context) { await tx`update term_langs set context = ${c.langContext} where term_id = ${id} and lang = ${c.lang}`; upd.push(`${c.lang}-контекст`); }
+          const [tl] = await tx`select comment from term_langs where term_id = ${id} and lang = ${c.lang}`;
+          if (!tl.comment) { await tx`update term_langs set comment = ${c.langContext} where term_id = ${id} and lang = ${c.lang}`; upd.push(`${c.lang}-комментарий лингвиста`); }
         }
         if (upd.length && !isNew) R.filled.push(`${tb}: ${upd.join(', ')} (${where})`);
       };
@@ -145,8 +145,8 @@ export async function runMultilang(tx: Db, dir: string) {
         if (!anyApproved) {
           const [{ w }] = await tx`select duplicate_warnings(${ru}, ${JSON.stringify(Object.fromEntries(cells.map((c) => [c.lang, c.text])))}::jsonb, null, null) w`;
           const [rq] = await tx`
-            insert into requests(code, type, ru, definition, context, comment, project_ids, lang, translation, warnings)
-            values ('Z-' || lpad(nextval('req_seq')::text, 5, '0'), 'new', ${ru}, ${definition}, ${context},
+            insert into requests(code, type, ru, definition, comment, project_ids, lang, translation, warnings)
+            values ('Z-' || lpad(nextval('req_seq')::text, 5, '0'), 'new', ${ru}, ${definition},
                     ${[`Из таблицы «${spec.title}», строка ${rowNo}.`, comment].filter(Boolean).join('\n')}, ${[pid]}::int[], null, '', ${w ?? []}::text[])
             returning id, code`;
           for (const c of cells) await tx`insert into request_translations(request_id, lang, text) values (${rq.id}, ${c.lang}, ${c.text})`;
@@ -154,7 +154,7 @@ export async function runMultilang(tx: Db, dir: string) {
           R.newReq.push(`${rq.code}: «${ru}» — ${cells.map((c) => `${c.lang} ${c.text}`).join('; ')} (${where})`); inc('заявка: новый');
           continue;
         }
-        const [n] = await tx`insert into terms(tb, ru, definition, context, comment) values ('TB-' || lpad(nextval('tb_seq')::text, 5, '0'), ${ru}, ${definition}, ${context}, ${comment}) returning id, tb, ru, status`;
+        const [n] = await tx`insert into terms(tb, ru, definition, comment) values ('TB-' || lpad(nextval('tb_seq')::text, 5, '0'), ${ru}, ${definition}, ${comment}) returning id, tb, ru, status`;
         t = n as typeof t;
         await fillTerm(n.id, n.tb, true);
         for (const c of cells) await tx`select add_translation(${n.id}, ${c.lang}, ${c.text}, ${c.status}, null)`;

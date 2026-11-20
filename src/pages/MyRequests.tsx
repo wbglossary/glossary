@@ -5,7 +5,7 @@ import { Empty, Message, useAsync } from '../ui/kit';
 import { RequestDrawer } from '../ui/RequestDrawer';
 import { Icon } from '../ui/Icon';
 
-const CLS: Record<string, string> = { pending: 'st-draft', approved: 'st-approved', rejected: 'st-need', auto_removed: 'st-unused', closed: 'st-unused' };
+const CLS: Record<string, string> = { pending: 'st-draft', approved: 'st-approved', rejected: 'st-need', auto_removed: 'st-unused', closed: 'st-unused', withdrawn: 'st-unused' };
 
 export function MyRequestsPage(_: PageProps) {
   const { data, error, loading, reload } = useAsync(() => rpc<RequestItem[]>('my_requests'), []);
@@ -14,7 +14,7 @@ export function MyRequestsPage(_: PageProps) {
   return (
     <div>
       <h1>Мои заявки</h1>
-      <p className="muted">Отозвать заявку нельзя. Исправить можно, пока её не рассмотрели: откройте заявку.</p>
+      <p className="muted">Откройте заявку, чтобы исправить её или отозвать. Отозвать можно, пока по ней никто не начал работать: не вписал перевод и не принял решение.</p>
       {error ? <Message kind="error">{error}</Message> : null}
       <div className="table-wrap">
         <table className="grid">
@@ -24,7 +24,7 @@ export function MyRequestsPage(_: PageProps) {
               <td className="link">{r.code}{r.comments ? <span className="ccount"><Icon name="comment" size={13} />{r.comments}</span> : null}</td>
               <td>{r.type_label}</td>
               <td><b>{r.ru}</b></td>
-              <td>{r.lang ? `${r.lang}: ${r.translation}` : r.type === 'new' ? 'на все языки' : ''}</td>
+              <td>{r.lang ? `${r.lang}: ${r.translation}` : r.type === 'new' ? (r.target_langs?.length ? `на ${r.target_langs.join(', ')}` : 'на все языки') : ''}</td>
               <td><span className={`badge ${CLS[r.status] ?? ''}`}>{r.status_label}</span></td>
               <td className="nowrap">{fmtDate(r.created_at)}</td>
               <td className="tb">{r.status === 'approved' ? r.tb : ''}</td>

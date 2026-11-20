@@ -65,6 +65,18 @@ for (const [key, name, role, lang] of TEST) {
   await pg.query(`insert into auth.users(id, email) values ($1,$2)`, [uid, email]);
   USERS[key] = { email, name, role, lang, uid };
 }
+// пустая копия — несколько демо-терминов, чтобы было что посмотреть
+if (!file) {
+  await pg.query(`insert into terms(tb, ru, definition, examples, comment) values
+    ('TB-00001', 'Корзина', 'Раздел приложения, куда покупатель складывает товары перед оформлением заказа.', 'Добавить в корзину; Перейти в корзину', ''),
+    ('TB-00002', 'Пункт выдачи заказов', 'Место, где покупатель забирает заказ.', 'Заберите заказ в пункте выдачи', 'Сокращение — ПВЗ'),
+    ('TB-00003', 'Возврат', 'Отказ покупателя от товара после получения.', 'Оформить возврат', '')`);
+  await pg.query(`select setval('tb_seq', 3)`);
+  await pg.query(`insert into translations(term_id, lang, text, status) values (1,'EN','Cart','approved'),(1,'KA','კალათა','approved'),(2,'EN','Pick-up point','approved'),(3,'EN','Return','draft')`);
+  await pg.query(`insert into term_langs(term_id, lang, comment, forbidden) values (1,'EN','В интерфейсе — только Cart, не Basket.','[{"text":"Basket","note":"британский вариант"}]')`);
+  await pg.query(`insert into term_langs(term_id, lang, optional) values (2,'KA',true)`);
+  await pg.query(`insert into term_projects values (2, 1)`);
+}
 // второй язык со своей ролью у тестового «mix» (если в базе есть KY)
 await pg.query(`insert into profile_langs(profile_id, lang, role) select id, 'KY', 'translator' from profiles where email = 'mix@test.local' and exists (select 1 from languages where code = 'KY') on conflict do nothing`).catch(() => null);
 

@@ -18,25 +18,35 @@ export function RequestDrawer({ item, onClose, onChanged }: { item: RequestItem 
     catch (e) { setErr((e as Error).message); }
   };
   const editable = item.mine && item.status === 'pending' && item.type !== 'obsolete';
+  const withdraw = async () => {
+    if (!window.confirm(`Отозвать заявку ${item.code}? Её больше никто не увидит в работе. Это нельзя отменить.`)) return;
+    try { await rpc('withdraw_request', { p_request: item.id }); onChanged?.(); }
+    catch (e) { setErr((e as Error).message); }
+  };
   return (
     <Drawer open onClose={onClose} title={<>{item.code} · {item.type_label}</>}>
       <dl className="fields">
         <dt>Русский термин</dt><dd><b>{item.ru}</b>{item.tb ? <> · <span className="tb">{item.tb}</span></> : null}</dd>
         <dt>Статус</dt><dd>{item.status_label}{item.decided_by ? ` · ${item.decided_by}, ${fmtDate(item.decided_at)}` : ''}</dd>
-        {item.lang ? <><dt>Язык</dt><dd>{item.lang}</dd></> : <><dt>Язык</dt><dd>все полные языки</dd></>}
+        {item.lang ? <><dt>Язык</dt><dd>{item.lang}</dd></> : item.type === 'new' ? <><dt>Языки</dt><dd>{item.target_langs?.length ? item.target_langs.join(', ') : 'все полные языки'}</dd></> : null}
         {item.translation ? <><dt>Перевод</dt><dd>{item.translation}</dd></> : null}
         {Object.keys(item.translations).length ? <><dt>Вписанные переводы</dt><dd>{Object.entries(item.translations).map(([l, t]) => `${l}: ${t}`).join('\n')}</dd></> : null}
         {item.target_text ? <><dt>Заменяет</dt><dd>«{item.target_text}»</dd></> : null}
         {item.definition ? <><dt>Определение</dt><dd>{item.definition}</dd></> : null}
         {item.examples ? <><dt>Примеры</dt><dd>{item.examples}</dd></> : null}
-        {item.context ? <><dt>Значение или контекст</dt><dd>{item.context}</dd></> : null}
         {item.projects.length ? <><dt>Проекты</dt><dd>{item.projects.join(', ')}</dd></> : null}
         {item.reason ? <><dt>Причина</dt><dd>{item.reason}</dd></> : null}
         {item.comment ? <><dt>Комментарий автора</dt><dd>{item.comment}</dd></> : null}
         <dt>Автор</dt><dd><AuthorChip a={item.author} /> · {fmtDate(item.created_at)}</dd>
       </dl>
       {item.warnings.length ? <Message kind="warn">Возможные дубли:<ul>{item.warnings.map((w) => <li key={w}>{w}</li>)}</ul></Message> : null}
-      {editable && !edit ? <Button small onClick={() => setEdit(true)}>Исправить заявку</Button> : null}
+      {editable && !edit ? (
+        <div className="row gap">
+          <Button small onClick={() => setEdit(true)}>Исправить заявку</Button>
+          {item.can_withdraw ? <Button small kind="danger" onClick={withdraw}>Отозвать заявку</Button> : null}
+        </div>
+      ) : null}
+      {editable && !item.can_withdraw ? <p className="muted small">Отозвать уже нельзя: по заявке начали работать. Если она больше не нужна — напишите об этом в комментарии.</p> : null}
       {edit ? <EditForm item={item} onDone={(ok) => { setEdit(false); if (ok) onChanged?.(); }} /> : null}
       <h4>Комментарии к заявке</h4>
       {error ? <Message kind="error">{error}</Message> : null}
@@ -53,7 +63,7 @@ export function RequestDrawer({ item, onClose, onChanged }: { item: RequestItem 
 }
 
 function EditForm({ item, onDone }: { item: RequestItem; onDone: (ok: boolean) => void }) {
-  const [f, setF] = useState({ ru: item.ru, translation: item.translation, definition: item.definition, examples: item.examples, context: item.context, comment: item.comment, reason: item.reason });
+  const [f, setF] = useState({ ru: item.ru, translation: item.translation, definition: item.definition, examples: item.examples, comment: item.comment, reason: item.reason });
   const [err, setErr] = useState<string | null>(null);
   const save = async () => {
     try { await rpc('edit_request', { p_request: item.id, p_input: f }); onDone(true); }
@@ -68,7 +78,6 @@ function EditForm({ item, onDone }: { item: RequestItem; onDone: (ok: boolean) =
       {field('translation', 'Перевод', !!item.lang)}
       {field('definition', 'Определение', item.type === 'new')}
       {field('examples', 'Примеры', item.type === 'new')}
-      {field('context', 'Значение или контекст', item.type === 'new')}
       {field('reason', 'Причина', item.type === 'replace' || item.type === 'variant')}
       {field('comment', 'Комментарий', item.type === 'new')}
       {err ? <Message kind="error">{err}</Message> : null}

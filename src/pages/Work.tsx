@@ -13,13 +13,27 @@ interface WorkPageData {
   counts: { need: number; draft: number; review: number }; can: { type: boolean; approve: boolean; unchecked: boolean };
 }
 
+/** Столбцы рабочей области, которые можно включать и выключать. Номер, русский термин и перевод видны всегда. */
+const WORK_COLS = [
+  { key: 'definition', label: 'Определение' },
+  { key: 'examples', label: 'Примеры' },
+  { key: 'status', label: 'Статус' },
+  { key: 'lang_comment', label: 'Комментарий лингвиста' },
+  { key: 'comment', label: 'Комментарий (общий)' },
+  { key: 'projects', label: 'Проекты' },
+  { key: 'others', label: 'Другие языки' }
+] as const;
+type WorkCol = (typeof WORK_COLS)[number]['key'];
+const WORK_DEFAULT: WorkCol[] = ['definition', 'examples', 'status', 'lang_comment', 'projects', 'others'];
+const clean = (s?: string) => (s && s.trim() !== '—' ? s : '');
+
 function myLangs(me: Me): string[] {
   if (me.langs.length) return me.langs.map((l) => l.code);
   if (me.role === 'owner') return me.languages.filter((l) => l.active).map((l) => l.code);
   return can.directLangs(me).map((l) => l.code);
 }
 
-export function WorkPage({ me, route }: PageProps) {
+export function WorkPage({ me, route, reloadMe }: PageProps) {
   const langs = myLangs(me);
   const [lang, setLang] = useState(route.params.get('lang') && langs.includes(route.params.get('lang')!) ? route.params.get('lang')! : langs[0]);
   const [tab, setTab] = useState<string>(route.params.get('tab') ?? 'mine');
@@ -31,7 +45,14 @@ export function WorkPage({ me, route }: PageProps) {
   const [sel, setSel] = useState<number[]>([]);
   const [msgs, setMsgs] = useState<{ kind: 'ok' | 'error' | 'warn'; text: string }[]>([]);
   const [modal, setModal] = useState<null | { mode: ChangeMode; row: WorkItem; current?: { id: number; text: string } }>(null);
-  const [others, setOthers] = useState(true);
+  const [chooser, setChooser] = useState(false);
+  const [savingCols, setSavingCols] = useState(false);
+  const cols = (me.prefs.work_cols ?? WORK_DEFAULT).filter((c): c is WorkCol => WORK_COLS.some((w) => w.key === c));
+  const show = (k: WorkCol) => cols.includes(k);
+  const saveCols = async (next: string[]) => {
+    setSavingCols(true);
+    try { await rpc('set_prefs', { p_prefs: { ...me.prefs, work_cols: next } }); await reloadMe(); } finally { setSavingCols(false); }
+  };
   const language = me.languages.find((l) => l.code === lang);
   const isWorker = can.worksLang(me, lang ?? '');
 
@@ -92,19 +113,41 @@ export function WorkPage({ me, route }: PageProps) {
               {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <SearchBox value={q} onChange={setQ} />
-            <label className="small"><input type="checkbox" checked={others} onChange={(e) => setOthers(e.target.checked)} /> переводы других языков</label>
+            <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
             {d?.can.approve ? <Button kind="primary" disabled={!sel.length} why={!sel.length ? 'Отметьте строки с черновиком' : undefined}
               onClick={() => approveRows(items.filter((x) => sel.includes(x.id)))}>Согласовать выбранные ({sel.length})</Button> : null}
           </div>
+          {chooser ? (
+            <div className="card colpick">
+              <div>
+                <h4>Столбцы</h4>
+                <div className="checks">
+                  {WORK_COLS.map((w) => (
+                    <label key={w.key}><input type="checkbox" checked={show(w.key)} disabled={savingCols}
+                      onChange={(e) => saveCols(e.target.checked ? WORK_COLS.map((x) => x.key).filter((k) => k === w.key || cols.includes(k)) : cols.filter((k) => k !== w.key))} /> {w.label}</label>
+                  ))}
+                </div>
+              </div>
+              <div className="row gap">
+                <span className="muted small">Номер, русский термин и перевод видны всегда. Выбор сохраняется только для вас.</span>
+                <Button small kind="link" disabled={savingCols} onClick={() => saveCols(WORK_DEFAULT)}>Вернуть как было</Button>
+              </div>
+            </div>
+          ) : null}
           {data.error ? <Message kind="error">{data.error}</Message> : null}
           <div className="table-wrap">
             <table className={`grid sticky${d?.can.approve ? ' with-check' : ''}`}>
               <thead><tr>
                 {d?.can.approve ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
-                <th className="s1">Номер</th><th className="s2">Русский термин</th><th className="wide">{lang}</th><th>Статус</th>
-                <th>Определение</th><th>Контекст</th><th>Проекты</th>
-                {others ? <th>Другие языки</th> : null}
+                <th className="s1">Номер</th><th className="s2">Русский термин</th><th className="wide">{lang}</th>
+                {show('definition') ? <th>Определение</th> : null}
+                {show('examples') ? <th>Примеры</th> : null}
+                {show('status') ? <th>Статус</th> : null}
+                {show('lang_comment') ? <th>Комментарий лингвиста</th> : null}
+                {show('comment') ? <th>Комментарий</th> : null}
+                {show('projects') ? <th>Проекты</th> : null}
+                {show('others') ? <th>Другие языки</th> : null}
                 <th />
               </tr></thead>
               <tbody>
@@ -118,11 +161,13 @@ export function WorkPage({ me, route }: PageProps) {
                       <TrCell row={r} lang={lang} canType={!!d?.can.type} onSaved={() => data.reload()} />
                       {r.forbidden.length ? <div className="small"><span className="muted">Как нельзя: </span>{r.forbidden.map((f, i) => <span key={i} className="forbidden" title={f.note}>{f.text}{i < r.forbidden.length - 1 ? ', ' : ''}</span>)}</div> : null}
                     </td>
-                    <td><StatusBadge status={r.status} /></td>
-                    <td className="muted"><div className="clip" title={r.definition}>{r.definition}</div></td>
-                    <td className="muted"><div className="clip" title={r.context}>{r.context}</div></td>
-                    <td>{r.projects.join(', ')}</td>
-                    {others ? <td className="small">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
+                    {show('definition') ? <td className="muted"><div className="clip" title={clean(r.definition)}>{clean(r.definition)}</div></td> : null}
+                    {show('examples') ? <td className="muted"><div className="clip" title={clean(r.examples)}>{clean(r.examples)}</div></td> : null}
+                    {show('status') ? <td><StatusBadge status={r.status} /></td> : null}
+                    {show('lang_comment') ? <td className="muted"><div className="clip" title={r.lang_comment}>{r.lang_comment}</div></td> : null}
+                    {show('comment') ? <td className="muted"><div className="clip" title={clean(r.comment)}>{clean(r.comment)}</div></td> : null}
+                    {show('projects') ? <td>{r.projects.join(', ')}</td> : null}
+                    {show('others') ? <td className="small">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
                     <td className="nowrap">
                       {d?.can.approve && (r.status === 'draft' || r.status === 'unchecked') ? <Button small kind="primary" onClick={() => approveRows([r])}>Согласовать</Button> : null}
                       {r.live.filter((x) => x.status !== 'draft').slice(0, 1).map((t) => d?.can.approve || d?.can.unchecked
@@ -264,7 +309,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
                   onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /> : null}</td> : null}
                 <td className="link nowrap" onClick={() => setOpen(r)}>{r.code}{r.comments ? <span className="ccount"><Icon name="comment" size={13} />{r.comments}</span> : null}</td>
                 <td>{r.type_label}{r.type === 'new' && !r.lang ? <div className="muted small">на все языки</div> : null}{r.ru_only ? <div className="muted small">русская часть (у {r.lang} нет валидатора)</div> : null}</td>
-                <td>{r.tb ? <div className="tb link tb-line" onClick={() => setTerm(r.term_id)}>{r.tb}</div> : null}<b>{r.ru}</b>{r.context ? <div className="muted small">{r.context}</div> : null}</td>
+                <td>{r.tb ? <div className="tb link tb-line" onClick={() => setTerm(r.term_id)}>{r.tb}</div> : null}<b>{r.ru}</b>{clean(r.definition) ? <div className="muted small clip" title={r.definition}>{r.definition}</div> : null}</td>
                 <td className="small">
                   {r.type === 'obsolete' ? <>Причина: {r.reason}</> : <>
                     {r.lang && r.translation ? <div><b>{r.lang}</b> {r.translation}</div> : null}

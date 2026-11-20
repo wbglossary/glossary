@@ -103,7 +103,7 @@ test('новый термин языка KA: TB-, остальные полны�
   assert.equal(g.items[0].tb, 'TB-00001');
   assert.deepEqual(g.items[0].cells.KA.t, ['QR-კოდი']);
   assert.equal(g.items[0].cells.EN.s, 'need');
-  for (const k of ['definition', 'examples', 'comment', 'context']) assert.ok(k in g.items[0], `в строке глоссария есть поле ${k}`);
+  for (const k of ['definition', 'examples', 'comment']) assert.ok(k in g.items[0], `в строке глоссария есть поле ${k}`);
 });
 
 test('армянский видит термин в «Новое из других языков», переводит — одна строка, один TB', async () => {
@@ -144,7 +144,7 @@ test('владелец не утверждает и не согласует', as
 
 test('заявка менеджера «на все языки»: видят все полные, первый валидатор создаёт термин', async () => {
   await fails(submit('man', { type: 'new', ru: 'x', lang: 'EN', translation: 'x' }), /только русскую часть/);
-  await submit('man', { type: 'new', ru: 'Кнопка оплаты', definition: '= формула?', context: 'тест', project_ids: [1] });
+  await submit('man', { type: 'new', ru: 'Кнопка оплаты', definition: '= формула?', project_ids: [1] });
   const z = await req(`ru = 'Кнопка оплаты'`);
   const hy = await call('vhy', 'lang_requests', { p_lang: 'HY' });
   const ka = await call('tka', 'lang_requests', { p_lang: 'KA' });
@@ -165,16 +165,16 @@ test('заявка менеджера «на все языки»: видят в�
   void v1;
 });
 
-test('«Это тот же смысл?»: да — перевод к существующему; нет — новый с контекстом', async () => {
+test('«Это тот же смысл?»: да — перевод к существующему; нет — новый с определением', async () => {
   const r = await submit('c1', { type: 'new', ru: 'qr код', lang: 'HY', translation: 'QR' });
   assert.equal(r.status, 'repeat');
   const id = r.matches[0].id;
-  await fails(submit('c1', { type: 'new', ru: 'qr код', lang: 'HY', translation: 'x', new_meaning: true }), /Значение или контекст/);
+  await fails(submit('c1', { type: 'new', ru: 'qr код', lang: 'HY', translation: 'x', new_meaning: true }), /заполните «Определение»/);
   const same = await submit('c1', { type: 'new', ru: 'qr код', lang: 'AM', translation: 'QR AM', same_as: id });
   assert.equal(same.status, 'added', 'AM без валидатора — подрядчик добавляет сразу');
   const c = await card('TB-00001');
   assert.equal(lang(c, 'AM').status, 'unchecked');
-  const other = await submit('c1', { type: 'new', ru: 'QR-код', lang: 'HY', translation: 'QR другой', new_meaning: true, context: 'в такси' });
+  const other = await submit('c1', { type: 'new', ru: 'QR-код', lang: 'HY', translation: 'QR другой', new_meaning: true, definition: 'в такси' });
   assert.equal(other.status, 'submitted');
 });
 
@@ -465,4 +465,61 @@ test('черновик: исправление одного дефиса сох�
   const b = await call('tfr', 'set_cell_text', { p_term: id, p_lang: 'FR', p_text: 'code QR', p_version: a.version });
   assert.equal(b.text, 'code QR');
   assert.equal(b.status, 'draft');
+});
+
+test('менеджер выбирает языки: остальные — «по желанию», только во вкладке «Новое из других языков»', async () => {
+  const r = await submit('man', { type: 'new', ru: 'Только грузинский', definition: 'тест', target_langs: ['KA'] });
+  assert.equal(r.status, 'submitted');
+  const z = await req(`ru = 'Только грузинский'`);
+  const ka = await call('vka', 'lang_requests', { p_lang: 'KA' });
+  assert.ok(ka.some((x: any) => x.id === z.id), 'KA видит заявку');
+  const hy = await call('vhy', 'lang_requests', { p_lang: 'HY' });
+  assert.ok(!hy.some((x: any) => x.id === z.id), 'HY не видит заявку');
+  await call('vka', 'set_request_translation', { p_request: z.id, p_lang: 'KA', p_text: 'მხოლოდ' });
+  const zz = await req(`id = ${z.id}`);
+  const a = await approve('vka', zz.id, zz.version, true);
+  const c = await card(a.tb);
+  assert.equal(lang(c, 'KA').status, 'approved');
+  assert.equal(lang(c, 'HY').status, 'optional');
+  const need = await call('vhy', 'work_page', { p_lang: 'HY', p_tab: 'mine', p_status: 'need' });
+  assert.ok(!need.items.some((x: any) => x.tb === a.tb), 'не в «Нужен перевод»');
+  const nw = await call('vhy', 'work_page', { p_lang: 'HY', p_tab: 'new' });
+  assert.ok(nw.items.some((x: any) => x.tb === a.tb), 'есть в «Новое из других языков»');
+  await call('man', 'set_lang_optional', { p_term: c.id, p_lang: 'HY', p_optional: false });
+  assert.equal(lang(await card(a.tb), 'HY').status, 'need');
+  await fails(submit('man', { type: 'new', ru: 'Ни одного', target_langs: [] }), /хотя бы один язык/);
+});
+
+test('отзыв заявки: пока никто не вписал перевод', async () => {
+  await submit('man', { type: 'new', ru: 'Отзываемый термин' });
+  let z = await req(`ru = 'Отзываемый термин'`);
+  await fails(call('ten', 'withdraw_request', { p_request: z.id }), /только её автор/);
+  await call('ten', 'set_request_translation', { p_request: z.id, p_lang: 'EN', p_text: 'Withdrawn' });
+  await fails(call('man', 'withdraw_request', { p_request: z.id }), /уже начали работать/);
+  await call('ten', 'set_request_translation', { p_request: z.id, p_lang: 'EN', p_text: '' });
+  const mine = await call('man', 'my_requests');
+  assert.equal(mine.find((x: any) => x.id === z.id).can_withdraw, true);
+  await call('man', 'withdraw_request', { p_request: z.id });
+  z = await req(`id = ${z.id}`);
+  assert.equal(z.status, 'withdrawn');
+});
+
+test('загрузка переводов подрядчика и удаление закрытого проекта', async () => {
+  await fails(call('man', 'import_translations', { p_lang: 'KA', p_rows: [{ tb: 'TB-00001', text: 'x' }] }), /сокращённые/);
+  await fails(call('tka', 'import_translations', { p_lang: 'AM', p_rows: [{ tb: 'TB-00001', text: 'x' }] }), /менеджер и владелец/);
+  const rows = [{ tb: 'TB-00001', text: 'QR AM' }, { ru: 'Только грузинский', text: 'ብቻ' }, { ru: 'нет такого', text: 'y' }, { ru: 'qr-код', text: '' }];
+  const pre = await call('man', 'import_translations', { p_lang: 'AM', p_rows: rows });
+  assert.deepEqual(pre.rows.map((x: any) => x.status), ['same', 'add', 'not_found', 'empty']);
+  assert.equal(pre.added, 0);
+  const done = await call('man', 'import_translations', { p_lang: 'AM', p_rows: rows, p_apply: true });
+  assert.equal(done.added, 1);
+  const g = await gl('Только грузинский');
+  assert.equal(g.items[0].cells.AM.s, 'unchecked');
+  // проект
+  const [p] = await sql<{ id: number }>(`select id from projects where name = 'такси'`);
+  await fails(call('owner', 'admin_delete_project', { p_project: p.id }), /только закрытый/);
+  await call('owner', 'admin_update_project', { p_project: p.id, p_name: 'такси', p_closed: true });
+  await fails(call('man', 'admin_delete_project', { p_project: p.id }), /владельцу/);
+  await call('owner', 'admin_delete_project', { p_project: p.id });
+  assert.equal((await sql(`select 1 from projects where id = ${p.id}`)).length, 0);
 });

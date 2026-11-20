@@ -15,6 +15,7 @@ import { LogPage } from './pages/Log';
 import { AdminPage } from './pages/Admin';
 import { FeedbackPage } from './pages/Feedback';
 import { HelpPage } from './pages/Help';
+import { ImportTranslationsPage } from './pages/ImportTranslations';
 import { FeedbackModal } from './ui/FeedbackModal';
 import { Icon } from './ui/Icon';
 import { menuHint } from './menuHints';
@@ -82,6 +83,7 @@ export function App() {
     { page: 'my-requests', label: 'Мои заявки', show: can.submit(me) },
     { page: 'archive', label: 'Архив', show: can.archive(me) },
     { page: 'export', label: 'Выгрузка', show: can.export(me) },
+    { page: 'import', label: 'Загрузка переводов', show: me.role === 'manager' || me.role === 'owner' },
     { page: 'log', label: 'Журнал изменений', show: can.log(me) },
     { page: 'admin', label: 'Администрирование', show: can.admin(me) },
     { page: 'help', label: 'Инструкция', show: true },
@@ -125,6 +127,7 @@ export function App() {
           {current === 'my-requests' && <MyRequestsPage {...props} />}
           {current === 'archive' && <ArchivePage {...props} />}
           {current === 'export' && <ExportPage {...props} />}
+          {current === 'import' && <ImportTranslationsPage {...props} />}
           {current === 'log' && <LogPage {...props} />}
           {current === 'admin' && <AdminPage {...props} />}
           {current === 'help' && <HelpPage {...props} />}

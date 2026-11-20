@@ -56,11 +56,11 @@ export function HomePage({ me }: PageProps) {
           <h2>Недавно добавленные</h2>
           <div className="table-wrap">
             <table className="grid">
-              <thead><tr><th>Номер</th><th>Русский термин</th><th>Определение или контекст</th>{recentLangs.map((l) => <th key={l}>{l}</th>)}<th>Добавлен</th></tr></thead>
+              <thead><tr><th>Номер</th><th>Русский термин</th><th>Определение</th>{recentLangs.map((l) => <th key={l}>{l}</th>)}<th>Добавлен</th></tr></thead>
               <tbody>{recent.data?.map((r) => (
                 <tr key={r.id} onClick={() => setOpen(r.id)} style={{ cursor: 'pointer' }}>
                   <td className="tb">{r.tb}</td><td><b>{r.ru}</b></td>
-                  <td className="muted"><div className="clip" title={r.definition || r.context}>{(r.definition && r.definition !== '—' ? r.definition : '') || r.context}</div></td>
+                  <td className="muted"><div className="clip" title={r.definition}>{r.definition && r.definition !== '—' ? r.definition : ''}</div></td>
                   {recentLangs.map((l) => <LangCellView key={l} cell={r.cells[l]} kind={kind(l)} />)}
                   <td className="nowrap">{fmtDate(r.created_at, false)}</td>
                 </tr>

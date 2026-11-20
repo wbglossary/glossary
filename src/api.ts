@@ -40,7 +40,7 @@ export interface Project { id: number; name: string; closed: boolean }
 export interface Me {
   id: number; email: string; name: string; role: Role; lang: string | null; avatar: string; contractor_no: number | null;
   langs: { code: string; role: 'translator' | 'validator' }[];   // языки человека и роль на каждом
-  prefs: { langs?: string[]; cols?: string[] }; is_en_validator: boolean; languages: Language[]; projects: Project[];
+  prefs: { langs?: string[]; cols?: string[]; work_cols?: string[] }; is_en_validator: boolean; languages: Language[]; projects: Project[];
 }
 
 export const can = {
@@ -61,14 +61,14 @@ export const can = {
   directLangs: (m: Me): Language[] => (m.role === 'contractor' ? m.languages.filter((l) => l.active && !l.has_validator) : [])
 };
 
-export type LangStatus = 'need' | 'draft' | 'unchecked' | 'approved' | 'unused';
+export type LangStatus = 'need' | 'optional' | 'draft' | 'unchecked' | 'approved' | 'unused';
 export const STATUS_LABEL: Record<LangStatus, string> = {
-  need: 'Нужен перевод', draft: 'Черновик', unchecked: 'Без проверки', approved: 'Согласовано', unused: 'Не используется'
+  need: 'Нужен перевод', optional: 'Перевод по желанию', draft: 'Черновик', unchecked: 'Без проверки', approved: 'Согласовано', unused: 'Не используется'
 };
 
-export interface Cell { t: string[]; s: LangStatus; f: boolean }
+export interface Cell { t: string[]; s: LangStatus; f: boolean; c?: string }
 export interface GlossaryItem {
-  id: number; tb: string; ru: string; context: string; version: number; projects: string[];
+  id: number; tb: string; ru: string; version: number; projects: string[];
   definition?: string; examples?: string; comment?: string;
   cells: Record<string, Cell>; replaced: { lang: string; old: string; new: string; at: string }[];
   obsolete_request: { code: string; reason: string } | null;
@@ -80,13 +80,13 @@ export interface Author { name: string; avatar: string | null }
 export interface Forbidden { text: string; note: string }
 export interface TermLang {
   code: string; name: string; kind: 'full' | 'short'; has_validator: boolean; status: LangStatus;
-  definition: string; examples: string; context: string; forbidden: Forbidden[]; draft: Record<string, unknown> | null; unused: boolean;
+  comment: string; optional: boolean; forbidden: Forbidden[]; draft: Record<string, unknown> | null; unused: boolean;
   live: { id: number; text: string; status: string; sort: number }[];
   history: { text: string; replaced_by: string | null; at: string }[];
-  can: { type: boolean; approve: boolean; edit: boolean; request: boolean; unused: boolean; fields: boolean };
+  can: { type: boolean; approve: boolean; edit: boolean; request: boolean; unused: boolean; optional: boolean; fields: boolean };
 }
 export interface TermCard {
-  id: number; tb: string; ru: string; definition: string; examples: string; context: string; comment: string;
+  id: number; tb: string; ru: string; definition: string; examples: string; comment: string;
   status: 'active' | 'archived'; archive_reason: string | null; version: number;
   created_at: string; created_by: string; updated_at: string; updated_by: string;
   projects: { id: number; name: string }[];
@@ -101,7 +101,8 @@ export interface TermCard {
 
 export interface RequestItem {
   id: number; code: string; type: string; type_label: string; status: string; status_label: string; ru: string;
-  definition: string; examples: string; context: string; comment: string; lang: string | null; translation: string; reason: string;
+  definition: string; examples: string; comment: string; lang: string | null; translation: string; reason: string;
+  target_langs: string[] | null; can_withdraw: boolean;
   warnings: string[]; author: Author; mine: boolean; created_at: string; decided_by: string | null; decided_at: string | null;
   version: number; term_id: number | null; tb: string | null; target_text: string | null; projects: string[];
   translations: Record<string, string>; comments: number;
@@ -109,7 +110,8 @@ export interface RequestItem {
 }
 
 export interface WorkItem {
-  id: number; tb: string; ru: string; definition: string; context: string; version: number; status: LangStatus; created_at: string;
+  id: number; tb: string; ru: string; definition: string; examples: string; comment: string; lang_comment: string;
+  version: number; status: LangStatus; created_at: string;
   projects: string[]; text: string; live: { id: number; text: string; status: string }[]; forbidden: Forbidden[]; others: Record<string, string>;
 }
 

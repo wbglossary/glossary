@@ -5,14 +5,16 @@ import { Button, Message, SearchBox } from '../ui/kit';
 
 type Kind = 'new' | 'translation';
 interface Form {
-  ru: string; lang: string; translation: string; definition: string; examples: string; context: string;
+  ru: string; lang: string; translation: string; definition: string; examples: string;
   projectIds: number[]; comment: string;
-  lDefinition: string; lExamples: string; lContext: string; forbidden: Forbidden[];
+  lComment: string; forbidden: Forbidden[];
+  targets: string[] | null;   // менеджер: на какие языки нужен перевод (null — ещё не трогал, значит все полные)
 }
-const EMPTY: Form = { ru: '', lang: '', translation: '', definition: '', examples: '', context: '', projectIds: [], comment: '',
-  lDefinition: '', lExamples: '', lContext: '', forbidden: [] };
-const DRAFT_KEY = 'gl_propose_draft_v2';
-interface Similar { id: number; tb: string; ru: string; context: string; status: string; exact: boolean }
+const EMPTY: Form = { ru: '', lang: '', translation: '', definition: '', examples: '', projectIds: [], comment: '',
+  lComment: '', forbidden: [], targets: null };
+const DRAFT_KEY = 'gl_propose_draft_v3';
+interface Similar { id: number; tb: string; ru: string; definition: string; status: string; exact: boolean }
+const brief = (s?: string) => (s && s.trim() && s.trim() !== '—' ? ` (${s.length > 80 ? s.slice(0, 80) + '…' : s})` : '');
 
 export function ProposePage({ me, route }: PageProps) {
   const langs = can.proposeLangs(me);
@@ -25,7 +27,9 @@ export function ProposePage({ me, route }: PageProps) {
   });
   const [term, setTerm] = useState<GlossaryItem | null>(null);
   const [similar, setSimilar] = useState<Similar[]>([]);
-  const [repeat, setRepeat] = useState<{ id: number; tb: string; ru: string; context: string }[] | null>(null);
+  const [repeat, setRepeat] = useState<{ id: number; tb: string; ru: string; definition: string }[] | null>(null);
+  const activeLangs = me.languages.filter((l) => l.active);
+  const targets = form.targets ?? activeLangs.filter((l) => l.kind === 'full').map((l) => l.code);
   const [result, setResult] = useState<{ text: string; code?: string; warnings: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,13 +48,15 @@ export function ProposePage({ me, route }: PageProps) {
     if (kind === 'new' && !form.ru.trim()) return setError('Впишите русский термин.');
     if (kind === 'translation' && !term) return setError('Выберите термин.');
     if (kind === 'translation' && (!form.lang || !form.translation.trim())) return setError('Выберите язык и впишите перевод.');
+    if (kind === 'new' && !langs.length && !targets.length) return setError('Отметьте хотя бы один язык, на который нужен перевод.');
     setBusy(true);
     try {
-      const lang_fields = form.lang ? { definition: form.lDefinition, examples: form.lExamples, context: form.lContext, forbidden: form.forbidden } : {};
+      const lang_fields = form.lang ? { comment: form.lComment, forbidden: form.forbidden } : {};
       const r = await rpc<{ status: string; code?: string; type?: string; message?: string; warnings?: string[]; matches?: typeof repeat }>('submit_request', {
         p_input: {
           type: kind, ru: form.ru, lang: form.lang || null, translation: form.translation, definition: form.definition, examples: form.examples,
-          context: form.context, project_ids: form.projectIds, comment: form.comment, term_id: term?.id ?? null, lang_fields, ...extra
+          project_ids: form.projectIds, comment: form.comment, term_id: term?.id ?? null, lang_fields,
+          ...(kind === 'new' && !langs.length ? { target_langs: targets } : {}), ...extra
         }
       });
       if (r.status === 'repeat') { setRepeat(r.matches ?? []); return; }
@@ -97,7 +103,7 @@ export function ProposePage({ me, route }: PageProps) {
         <>
           <h3>2. Термин</h3>
           {term ? (
-            <div className="card row gap"><span className="tb">{term.tb}</span> <b>{term.ru}</b> {term.context ? <span className="muted">({term.context})</span> : null}
+            <div className="card row gap"><span className="tb">{term.tb}</span> <b>{term.ru}</b> <span className="muted">{brief(term.definition)}</span>
               <Button small kind="link" onClick={() => setTerm(null)}>выбрать другой</Button></div>
           ) : <TermPicker onPick={setTerm} />}
         </>
@@ -111,13 +117,13 @@ export function ProposePage({ me, route }: PageProps) {
           </label>
           {similar.length && !repeat ? (
             <Message kind="warn">Похожие термины уже есть — проверьте, не то же ли это. Заявку всё равно можно отправить.
-              <ul>{similar.map((s) => <li key={s.id}><span className="tb">{s.tb}</span> {s.ru}{s.context ? ` (${s.context})` : ''}{s.exact ? ' — точное совпадение' : ''}{s.status === 'archived' ? ' — в архиве' : ''}</li>)}</ul>
+              <ul>{similar.map((s) => <li key={s.id}><span className="tb">{s.tb}</span> {s.ru}{brief(s.definition)}{s.exact ? ' — точное совпадение' : ''}{s.status === 'archived' ? ' — в архиве' : ''}</li>)}</ul>
             </Message>
           ) : null}
           {repeat ? (
             <Message kind="warn">
               <b>Такой русский термин уже есть. Это тот же смысл?</b>
-              <ul>{repeat.map((m) => <li key={m.id}><span className="tb">{m.tb}</span> {m.ru}{m.context ? ` (${m.context})` : ''}</li>)}</ul>
+              <ul>{repeat.map((m) => <li key={m.id}><span className="tb">{m.tb}</span> {m.ru}{brief(m.definition)}</li>)}</ul>
               <div className="actions">
                 {repeat.map((m) => form.lang && form.translation ? (
                   <Button key={m.id} kind="primary" small disabled={busy} onClick={() => send({ same_as: m.id })}>Да, тот же ({m.tb}) — добавить перевод к нему</Button>
@@ -125,7 +131,7 @@ export function ProposePage({ me, route }: PageProps) {
                 <Button small disabled={busy} onClick={() => send({ new_meaning: true })}>Нет, другой смысл — отправить как новый</Button>
               </div>
               {!form.lang || !form.translation ? <p className="small">Если смысл тот же и перевода у вас нет — ничего отправлять не нужно, термин уже в глоссарии.</p> : null}
-              <p className="small">Для другого смысла обязательно заполните «Значение или контекст» ниже.</p>
+              <p className="small">Для другого смысла обязательно заполните «Определение» ниже — по нему термины будут различать.</p>
             </Message>
           ) : null}
         </>
@@ -144,12 +150,10 @@ export function ProposePage({ me, route }: PageProps) {
               <label className="field"><span>Перевод{kind === 'new' ? ' (по желанию)' : ''}</span>
                 <input value={form.translation} onChange={(e) => set('translation', e.target.value)} />
               </label>
-              <Button small kind="link" onClick={() => setShowLangFields(!showLangFields)}>{showLangFields ? 'Скрыть' : 'Добавить'} определение, примеры, «Как нельзя» на этом языке</Button>
+              <Button small kind="link" onClick={() => setShowLangFields(!showLangFields)}>{showLangFields ? 'Скрыть' : 'Добавить'} комментарий лингвиста и «Как нельзя»</Button>
               {showLangFields ? (
                 <div className="card">
-                  <label className="field"><span>Определение на этом языке</span><textarea value={form.lDefinition} onChange={(e) => set('lDefinition', e.target.value)} /></label>
-                  <label className="field"><span>Примеры</span><textarea value={form.lExamples} onChange={(e) => set('lExamples', e.target.value)} /></label>
-                  <label className="field"><span>Значение или контекст</span><input value={form.lContext} onChange={(e) => set('lContext', e.target.value)} /></label>
+                  <label className="field"><span>Комментарий лингвиста ({form.lang})</span><textarea value={form.lComment} onChange={(e) => set('lComment', e.target.value)} /></label>
                   <div className="field"><span>Как нельзя</span>
                     {form.forbidden.map((x, i) => (
                       <div key={i} className="row gap">
@@ -164,14 +168,21 @@ export function ProposePage({ me, route }: PageProps) {
             </>
           ) : null}
         </>
-      ) : <p className="muted small">Вы предлагаете только русскую часть — заявка уйдёт переводчикам всех языков.</p>}
+      ) : kind === 'new' ? (
+        <div className="field"><span>На какие языки нужен перевод</span>
+          <div className="checks">{activeLangs.map((l) => (
+            <label key={l.code}><input type="checkbox" checked={targets.includes(l.code)}
+              onChange={(e) => set('targets', e.target.checked ? [...targets, l.code] : targets.filter((x) => x !== l.code))} /> {l.code} — {l.name}{l.kind === 'short' ? ' (сокр.)' : ''}</label>
+          ))}</div>
+          <span className="muted small">Заявка уйдёт переводчикам отмеченных языков. Остальные увидят термин во вкладке «Новое из других языков» и переведут, если он им нужен.</span>
+        </div>
+      ) : null}
 
       {kind === 'new' ? (
         <>
-          <label className="field"><span>Определение (на русском)</span><textarea value={form.definition} onChange={(e) => set('definition', e.target.value)} /></label>
+          <label className="field"><span>Определение (на русском) {repeat ? <b className="req">обязательно для другого смысла</b> : null}</span>
+            <textarea value={form.definition} onChange={(e) => set('definition', e.target.value)} /></label>
           <label className="field"><span>Примеры</span><textarea value={form.examples} onChange={(e) => set('examples', e.target.value)} /></label>
-          <label className="field"><span>Значение или контекст {repeat ? <b className="req">обязательно для другого смысла</b> : null}</span>
-            <input value={form.context} onChange={(e) => set('context', e.target.value)} /></label>
           <div className="field"><span>Проекты (не выбрано — общий термин)</span>
             <div className="checks">{me.projects.filter((p) => !p.closed).map((p) => (
               <label key={p.id}><input type="checkbox" checked={form.projectIds.includes(p.id)}
@@ -205,7 +216,7 @@ function TermPicker({ onPick }: { onPick: (t: GlossaryItem) => void }) {
     <div className="card">
       <SearchBox value={q} onChange={setQ} placeholder="Начните вводить русский термин, перевод или TB-" />
       <ul className="pick">{items.map((c) => (
-        <li key={c.id} onClick={() => onPick(c)}><span className="tb">{c.tb}</span> <b>{c.ru}</b> {c.context ? <span className="muted">({c.context})</span> : null}</li>
+        <li key={c.id} onClick={() => onPick(c)}><span className="tb">{c.tb}</span> <b>{c.ru}</b> <span className="muted">{brief(c.definition)}</span></li>
       ))}</ul>
     </div>
   );

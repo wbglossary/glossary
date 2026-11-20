@@ -8,6 +8,7 @@ type Ears = 'pointy' | 'round' | 'long' | 'floppy' | 'tufts' | 'none';
 interface Animal {
   name: string; fur: string; inner?: string; muzzle?: string; ears: Ears; earColor?: string;
   extra?: (put: (x: number, y: number, c: string) => void, A: Animal) => void;
+  back?: (put: (x: number, y: number, c: string) => void) => void;   // то, что за головой (хвост)
   eyes?: 'dot' | 'big' | 'top';
 }
 
@@ -47,7 +48,21 @@ export const ANIMALS: Record<string, Animal> = {
   duckling: { name: 'Утёнок', fur: '#ffd84a', ears: 'none',
     extra: (p) => { for (let x = 6; x <= 9; x++) { p(x, 11, '#f39a2a'); p(x, 12, '#e07f16'); } p(7, 3, '#ffd84a'); p(8, 3, '#ffd84a'); p(8, 2, '#ffd84a'); } },
   tiger: { name: 'Тигрёнок', fur: '#f4a23c', inner: '#f48f9b', muzzle: '#fff3e2', ears: 'round', earColor: '#f4a23c',
-    extra: (p) => { [[7, 5], [8, 5], [7, 6], [8, 6], [4, 7], [5, 7], [10, 7], [11, 7], [2, 10], [3, 10], [12, 10], [13, 10]].forEach(([x, y]) => p(x, y, '#3a2516')); } }
+    extra: (p) => { [[7, 5], [8, 5], [7, 6], [8, 6], [4, 7], [5, 7], [10, 7], [11, 7], [2, 10], [3, 10], [12, 10], [13, 10]].forEach(([x, y]) => p(x, y, '#3a2516')); } },
+  squirrel: { name: 'Белочка', fur: '#d9773a', inner: '#f7c9a0', muzzle: '#fbe8cf', ears: 'pointy', earColor: '#c4652c',
+    back: (p) => {
+      // пушистый хвост справа за головой
+      for (let y = 1; y <= 11; y++) for (let x = 11; x <= 15; x++) if (((x - 13.6) / 2.2) ** 2 + ((y - 5.5) / 4.8) ** 2 <= 1) p(x, y, '#c4652c');
+      [[14, 2], [15, 3], [15, 4], [14, 1]].forEach(([x, y]) => p(x, y, '#f0a868'));
+    },
+    extra: (p) => { [[3, 1], [2, 1], [12, 1], [13, 1], [3, 0], [12, 0]].forEach(([x, y]) => p(x, y, '#8a3f1c')); } },
+  boar: { name: 'Кабанчик', fur: '#7d5b47', inner: '#c98a8a', ears: 'pointy', earColor: '#5f4333',
+    extra: (p) => {
+      [[7, 4], [8, 4], [7, 5], [8, 5], [6, 5], [9, 5], [7, 3], [8, 3]].forEach(([x, y]) => p(x, y, '#4a3426'));   // чёлка-гребень
+      for (let y = 10; y <= 14; y++) for (let x = 4; x <= 11; x++) if (((x - 7.5) / 2.7) ** 2 + ((y - 12) / 1.7) ** 2 <= 1) p(x, y, '#e9a3ab');
+      [[6, 12], [9, 12]].forEach(([x, y]) => p(x, y, '#8a3d4a'));   // ноздри
+      [[4, 13], [4, 12], [11, 13], [11, 12]].forEach(([x, y]) => p(x, y, '#fffaf0'));   // клыки
+    } }
 };
 
 export const AVATAR_KEYS = Object.keys(ANIMALS);
@@ -57,6 +72,7 @@ function draw(key: string): Px[] {
   const g: (string | null)[][] = Array.from({ length: 16 }, () => Array(16).fill(null));
   const put = (x: number, y: number, c: string) => { if (x >= 0 && x < 16 && y >= 0 && y < 16) g[y][x] = c; };
   const ear = A.earColor ?? A.fur;
+  A.back?.(put);
   // уши
   if (A.ears === 'pointy') {
     const L: [number, number][] = [[3, 2], [3, 3], [4, 3], [2, 4], [3, 4], [4, 4], [5, 4], [2, 5], [3, 5], [4, 5], [5, 5], [6, 5]];
@@ -98,7 +114,7 @@ function draw(key: string): Px[] {
     [[4, 9], [5, 9], [4, 10], [5, 10], [10, 9], [11, 9], [10, 10], [11, 10]].forEach(([x, y]) => put(x, y, EYE));
     put(4, 9, HI); put(10, 9, HI);
   }
-  if (A.eyes !== 'top' && key !== 'owl' && key !== 'penguin' && key !== 'duckling') {
+  if (A.eyes !== 'top' && !['owl', 'penguin', 'duckling', 'boar'].includes(key)) {
     put(7, 11, NOSE); put(8, 11, NOSE);
     put(6, 12, EYE); put(9, 12, EYE); put(7, 13, EYE); put(8, 13, EYE);
   }
