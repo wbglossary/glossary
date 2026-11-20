@@ -15,7 +15,8 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
   const [editRu, setEditRu] = useState(false);
   const [editFields, setEditFields] = useState<string | null>(null);
   const [showEmpty, setShowEmpty] = useState(false);
-  useEffect(() => setShowEmpty(false), [id]);
+  const [editProjects, setEditProjects] = useState(false);
+  useEffect(() => { setShowEmpty(false); setEditProjects(false); }, [id]);
 
   const act = async (fn: () => Promise<unknown>, ok: string, close = false) => {
     setBusy(true);
@@ -69,7 +70,12 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                   <dt>Определение</dt><dd>{c.definition || '—'}</dd>
                   <dt>Примеры</dt><dd>{c.examples || '—'}</dd>
                   <dt>Значение или контекст</dt><dd>{c.context || '—'}</dd>
-                  <dt>Проекты</dt><dd>{c.projects.length ? c.projects.map((p) => p.name).join(', ') : 'Общий (все проекты)'}</dd>
+                  <dt>Проекты</dt><dd>
+                    {editProjects ? <ProjectsForm c={c} me={me} onDone={(n) => { setEditProjects(false); if (n !== null) { setMsg({ kind: 'ok', text: n ? 'Проекты сохранены.' : 'Изменений нет.' }); reload(); onChanged?.(); } }} /> : <>
+                      {c.projects.length ? c.projects.map((p) => p.name).join(', ') : 'Общий (все проекты)'}
+                      {c.can.edit_ru ? <> <Button small kind="link" onClick={() => setEditProjects(true)}>Изменить</Button></> : null}
+                    </>}
+                  </dd>
                   {c.comment ? <><dt>Комментарий</dt><dd>{c.comment}</dd></> : null}
                 </dl>
               )}
@@ -362,3 +368,29 @@ function MergeDialog({ c, onCancel, onDone }: { c: TermCard; onCancel: () => voi
 }
 
 export { langGen };
+
+/** Быстрое изменение проектов термина — только галочки, без формы всей русской части. */
+function ProjectsForm({ c, me, onDone }: { c: TermCard; me: Me; onDone: (n: number | null) => void }) {
+  const [projects, setProjects] = useState<number[]>(c.projects.map((p) => p.id));
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try { onDone(await rpc<number>('edit_ru', { p_term: c.id, p_version: c.version, p_fields: { project_ids: projects } })); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="projects-form">
+      <div className="checks">{me.projects.filter((p) => !p.closed || projects.includes(p.id)).map((p) => (
+        <label key={p.id}><input type="checkbox" checked={projects.includes(p.id)} disabled={p.closed && !projects.includes(p.id)}
+          onChange={(e) => setProjects(e.target.checked ? [...projects, p.id] : projects.filter((x) => x !== p.id))} /> {p.name}{p.closed ? ' (закрыт)' : ''}</label>
+      ))}</div>
+      <p className="muted small">Без отметок — общий термин для всех проектов.</p>
+      {err ? <Message kind="error">{err}</Message> : null}
+      <div className="row gap">
+        <Button small kind="primary" disabled={busy} onClick={save}>{busy ? 'Сохраняю…' : 'Сохранить'}</Button>
+        <Button small onClick={() => onDone(null)}>Отмена</Button>
+      </div>
+    </div>
+  );
+}

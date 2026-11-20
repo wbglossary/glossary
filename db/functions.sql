@@ -1108,6 +1108,32 @@ begin
   return n;
 end $$;
 
+-- Добавить выбранные термины в проект или убрать из проекта (менеджер, валидатор английского, владелец)
+create or replace function set_term_project(p_terms int[], p_project int, p_add boolean) returns int
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); pr projects; t record; n int := 0;
+begin
+  if not can_edit_ru(u) then perform app_error('Проекты терминов меняют менеджер, валидатор английского и владелец.'); end if;
+  select * into pr from projects where id = p_project;
+  if not found then perform app_error('Проект не найден.'); end if;
+  if p_add and pr.closed then perform app_error('Проект «' || pr.name || '» закрыт — в него нельзя добавлять термины.'); end if;
+  if coalesce(array_length(p_terms, 1), 0) = 0 then perform app_error('Отметьте термины.'); end if;
+  if array_length(p_terms, 1) > 500 then perform app_error('За один раз — не больше 500 терминов.'); end if;
+  for t in select x.id, x.tb from terms x where x.id = any(p_terms) order by x.tb for update loop
+    if p_add then
+      insert into term_projects(term_id, project_id) values (t.id, pr.id) on conflict do nothing;
+    else
+      delete from term_projects where term_id = t.id and project_id = pr.id;
+    end if;
+    if found then
+      perform log_event(u, case when p_add then 'Добавлен в проект' else 'Убран из проекта' end, t.tb, null, null, null, pr.name);
+      perform bump_term(t.id, u.id);
+      n := n + 1;
+    end if;
+  end loop;
+  return n;
+end $$;
+
 create or replace function archive_term(p_term int, p_version int) returns void
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); t terms;
@@ -1561,7 +1587,7 @@ begin
     'set_cell_text(integer, text, text, integer)', 'set_lang_approval(jsonb, text, boolean)', 'edit_translation(integer, text, text)',
     'edit_lang_fields(integer, text, jsonb, integer)', 'set_unused(integer, text, boolean)',
     'propose_obsolete(integer, text)', 'answer_obsolete(integer, text, text)', 'close_obsolete(integer)',
-    'edit_ru(integer, integer, jsonb)', 'archive_term(integer, integer)', 'restore_term(integer, integer)', 'delete_term(integer, text)',
+    'edit_ru(integer, integer, jsonb)', 'set_term_project(integer[], integer, boolean)', 'archive_term(integer, integer)', 'restore_term(integer, integer)', 'delete_term(integer, text)',
     'merge_terms(integer, integer, jsonb)', 'add_term_comment(integer, text)', 'hide_term_comment(integer)',
     'work_page(text, text, text, integer, text, integer, integer)', 'archive_lists(text)', 'log_page(jsonb, integer, integer)',
     'export_data(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',

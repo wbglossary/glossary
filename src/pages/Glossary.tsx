@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { rpc, type GlossaryItem, type Page } from '../api';
+import { can, rpc, type GlossaryItem, type Page } from '../api';
 import type { PageProps } from '../router';
 import { Button, Empty, Message, Pager, SearchBox, useAsync } from '../ui/kit';
 import { TermDrawer } from '../ui/TermDrawer';
@@ -15,6 +15,12 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<number | null>(null);
   const [chooser, setChooser] = useState(false);
+  // массовая работа с проектами — менеджер, валидатор английского, владелец
+  const bulk = can.editRu(me);
+  const [sel, setSel] = useState<number[]>([]);
+  const [bulkProject, setBulkProject] = useState<number | ''>('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const shown = (me.prefs.langs?.length ? me.prefs.langs : active.map((l) => l.code)).filter((c) => active.some((l) => l.code === c));
 
   const { data, error, loading, reload } = useAsync(
@@ -28,6 +34,18 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
     try { await rpc('set_prefs', { p_prefs: { ...me.prefs, ...patch } }); await reloadMe(); } finally { setSaving(false); }
   };
   const toggle = (list: string[], key: string, on: boolean) => (on ? [...list, key] : list.filter((x) => x !== key));
+  const runBulk = async (add: boolean) => {
+    if (!bulkProject) { setBulkMsg({ kind: 'error', text: 'Выберите проект.' }); return; }
+    const name = me.projects.find((p) => p.id === bulkProject)?.name ?? '';
+    setBulkBusy(true); setBulkMsg(null);
+    try {
+      const n = await rpc<number>('set_term_project', { p_terms: sel, p_project: bulkProject, p_add: add });
+      setBulkMsg({ kind: 'ok', text: add
+        ? `Добавлено в «${name}»: ${n}${n < sel.length ? ` (остальные ${sel.length - n} уже были в проекте)` : ''}.`
+        : `Убрано из «${name}»: ${n}${n < sel.length ? ` (остальных ${sel.length - n} в проекте не было)` : ''}.` });
+      setSel([]); reload();
+    } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setBulkBusy(false); }
+  };
 
   return (
     <div>
@@ -77,9 +95,23 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
           </div>
         </div>
       ) : null}
+      {bulkMsg ? <Message kind={bulkMsg.kind} onClose={() => setBulkMsg(null)}>{bulkMsg.text}</Message> : null}
+      {bulk && sel.length ? (
+        <div className="bulkbar">
+          <b>Отмечено: {sel.length}</b>
+          <select value={bulkProject} onChange={(e) => setBulkProject(e.target.value ? Number(e.target.value) : '')} aria-label="Проект">
+            <option value="">— проект —</option>
+            {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.closed ? ' (закрыт)' : ''}</option>)}
+          </select>
+          <Button kind="primary" disabled={bulkBusy || !bulkProject} onClick={() => runBulk(true)}>Добавить в проект</Button>
+          <Button disabled={bulkBusy || !bulkProject} onClick={() => runBulk(false)}>Убрать из проекта</Button>
+          <Button kind="link" onClick={() => setSel([])}>Снять отметки</Button>
+        </div>
+      ) : null}
       {error ? <Message kind="error">{error}</Message> : null}
       <div className="table-wrap">
-        {data ? <TermsTable me={me} items={data.items} langs={shown} cols={cols} openId={open} onOpen={setOpen} /> : null}
+        {data ? <TermsTable me={me} items={data.items} langs={shown} cols={cols} openId={open} onOpen={setOpen}
+          selected={bulk ? sel : undefined} onSelect={bulk ? setSel : undefined} /> : null}
         {!loading && data && !data.items.length ? <Empty>Ничего не найдено.</Empty> : null}
         {loading ? <div className="empty">Загрузка…</div> : null}
       </div>

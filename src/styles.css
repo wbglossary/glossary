@@ -288,6 +288,12 @@ td.c-unused { background: #f6f6f8; color: var(--muted); }
 .comments li { border-bottom: 1px solid var(--line); padding: 12px 0; }
 .langblock { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 8px 0; transition: border-color .15s; }
 .langblock:hover { border-color: var(--line-strong); }
+.bulkbar { position: sticky; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px;
+  background: var(--accent-bg); border: 1px solid #d8c8f3; border-radius: 16px; box-shadow: var(--shadow); }
+.bulkbar select { min-width: 220px; }
+.grid th.check-col, .grid td.check-col { width: 40px; text-align: center; }
+.projects-form { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+.projects-form p { margin: 0; }
 .empty-langs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin: 8px 0; border: 1px dashed var(--line-strong); border-radius: 14px; font-size: 14px; }
 .langhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 26px; }
 .langhead b { min-width: 30px; font-family: var(--mono); font-size: 13px; }

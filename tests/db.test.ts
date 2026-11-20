@@ -338,6 +338,22 @@ test('русская часть: менеджер, валидатор англи
   assert.notEqual(rn.tb, r.tb);
 });
 
+test('проекты у нескольких терминов сразу: менеджер добавляет и убирает, переводчик — нет', async () => {
+  const a = (await gl('TB-00001')).items[0].id;
+  const b = (await gl('TB-00002')).items[0]?.id ?? a;
+  const ids = [...new Set([a, b])];
+  await fails(call('tka', 'set_term_project', { p_terms: ids, p_project: 1, p_add: true }), /менеджер, валидатор английского/);
+  const v0 = (await call('owner', 'term_card', { p_id: a })).version;
+  const added = await call('man', 'set_term_project', { p_terms: ids, p_project: 1, p_add: true });
+  assert.ok(added >= 1);
+  assert.equal(await call('man', 'set_term_project', { p_terms: ids, p_project: 1, p_add: true }), 0, 'повторное добавление ничего не меняет');
+  const c = await call('owner', 'term_card', { p_id: a });
+  assert.ok(c.projects.some((p: { id: number }) => p.id === 1));
+  assert.ok(c.version > v0, 'версия термина растёт — открытые карточки узнают об изменении');
+  assert.equal(await call('man', 'set_term_project', { p_terms: ids, p_project: 1, p_add: false }), ids.length);
+  assert.ok(!(await call('owner', 'term_card', { p_id: a })).projects.some((p: { id: number }) => p.id === 1));
+});
+
 test('архив вручную и удаление — только владелец; журнал нельзя менять', async () => {
   const id = (await gl('корзина')).items[0].id;
   const c = await call('owner', 'term_card', { p_id: id });
