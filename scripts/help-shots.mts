@@ -65,6 +65,7 @@ const go = async (hash: string, as?: string) => {
   await send('Page.navigate', { url: `${APP}#/${hash}` });
   await sleep(1800);
   await js(`document.querySelectorAll('.hs-badge').forEach((e) => e.remove()); document.querySelectorAll('.hs-mark').forEach((e) => e.classList.remove('hs-mark')); window.scrollTo(0, 0);`);
+  await js(`document.documentElement.dataset.theme = 'light'`);   // картинки всегда в светлой теме
   await js(`if (!document.getElementById('hs-css')) { const s = document.createElement('style'); s.id = 'hs-css'; s.textContent = \`
     .hs-mark { outline: 3px solid #ff3d7f !important; outline-offset: 3px; border-radius: 10px; position: relative; }
     .hs-badge { position: absolute; z-index: 9999; width: 28px; height: 28px; border-radius: 50%; background: #ff3d7f; color: #fff;

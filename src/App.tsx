@@ -19,6 +19,7 @@ import { ImportTranslationsPage } from './pages/ImportTranslations';
 import { FeedbackModal } from './ui/FeedbackModal';
 import { Icon } from './ui/Icon';
 import { menuHint } from './menuHints';
+import { ThemeButton } from './theme';
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -116,6 +117,7 @@ export function App() {
             <span><b>{me.name}</b> · {me.langs.length > 1
               ? me.langs.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ')
               : <>{ROLE_LABELS[me.role]}{langName ? ` (${langName})` : ''}</>}{me.role === 'contractor' ? ` ${me.contractor_no}` : ''}</span>
+            <ThemeButton />
             <Button small kind="link" onClick={() => supabase.auth.signOut()}>Выйти</Button>
           </div>
         </header>
