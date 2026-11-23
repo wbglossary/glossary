@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { fmtDate, rpc } from '../api';
-import { buildTbx, buildViewXlsx, buildXlsx, download, type ExportData, type ViewData } from '../exportFile';
+import { buildXml, buildViewXlsx, buildXlsx, download, type ExportData, type ViewData } from '../exportFile';
 import type { PageProps } from '../router';
 import { Button, Empty, Message, useAsync } from '../ui/kit';
 
@@ -19,7 +19,7 @@ export function ExportPage({ me }: PageProps) {
   const projName = project ? me.projects.find((p) => p.id === project)?.name ?? '' : 'все проекты';
   const base = `Глоссарий — ${projName} — ${stamp()}`;
 
-  const run = async (format: 'xlsx' | 'tbx' | 'view') => {
+  const run = async (format: 'xlsx' | 'xml' | 'view') => {
     if (format !== 'view' && !langs.length) return setMsg({ kind: 'error', text: 'Выберите хотя бы один язык.' });
     setBusy(format); setMsg(null);
     try {
@@ -31,7 +31,7 @@ export function ExportPage({ me }: PageProps) {
       } else {
         const d = await rpc<ExportData>('export_data', { p_langs: langs, p_project: project });
         n = d.terms.length;
-        download(format === 'xlsx' ? await buildXlsx(d) : buildTbx(d, base), `${base}.${format}`);
+        download(format === 'xlsx' ? await buildXlsx(d) : buildXml(d, base), `${base}.${format}`);
       }
       await rpc('log_export', { p_langs: format === 'view' ? me.languages.filter((l) => l.active).map((l) => l.code) : langs, p_project: project,
         p_format: format === 'view' ? 'xlsx (просмотр)' : format, p_count: n });
@@ -50,7 +50,7 @@ export function ExportPage({ me }: PageProps) {
             {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.closed ? ' (закрыт)' : ''}</option>)}
           </select>
         </label>
-        <div className="field"><span>Языки для Smartcat и TBX</span>
+        <div className="field"><span>Языки для Smartcat и XML</span>
           <div className="checks">{full.map((l) => (
             <label key={l.code}><input type="checkbox" checked={langs.includes(l.code)}
               onChange={(e) => setLangs(e.target.checked ? [...langs, l.code] : langs.filter((x) => x !== l.code))} /> {l.code} — {l.name}</label>
@@ -61,7 +61,7 @@ export function ExportPage({ me }: PageProps) {
         {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
         <div className="actions">
           <Button kind="primary" disabled={!!busy} onClick={() => run('xlsx')}>{busy === 'xlsx' ? 'Готовлю…' : 'Скачать для Smartcat (.xlsx)'}</Button>
-          <Button disabled={!!busy} onClick={() => run('tbx')}>{busy === 'tbx' ? 'Готовлю…' : 'Скачать TBX'}</Button>
+          <Button disabled={!!busy} onClick={() => run('xml')}>{busy === 'xml' ? 'Готовлю…' : 'Скачать XML'}</Button>
           <Button disabled={!!busy} onClick={() => run('view')}>{busy === 'view' ? 'Готовлю…' : 'Таблица для просмотра (.xlsx)'}</Button>
         </div>
         <p className="muted small">В файле для Smartcat заметки по языкам и «Нельзя: …» попадают в колонку Comments. Таблица для просмотра — все языки со статусами, пустые ячейки красные.</p>

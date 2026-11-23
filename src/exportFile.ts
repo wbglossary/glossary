@@ -1,4 +1,4 @@
-/** Сборка файлов выгрузки в браузере: .xlsx для Smartcat, TBX и таблица для просмотра. */
+/** Сборка файлов выгрузки в браузере: .xlsx для Smartcat, XML (внутри — стандарт TBX) и таблица для просмотра. */
 import type { Cell, Forbidden } from './api';
 
 interface LangFields { comment: string; forbidden: Forbidden[] }
@@ -93,7 +93,8 @@ export async function buildViewXlsx(d: ViewData): Promise<Blob> {
 
 const esc = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export function buildTbx(d: ExportData, title: string): Blob {
+/** Глоссарий в XML. Внутри — стандартная разметка TBX, её понимают CAT-программы. */
+export function buildXml(d: ExportData, title: string): Blob {
   const out = ['<?xml version="1.0" encoding="UTF-8"?>', `<martif type="TBX" xml:lang="${esc(d.ru_code)}">`,
     `<martifHeader><fileDesc><sourceDesc><p>${esc(title)}</p></sourceDesc></fileDesc></martifHeader>`, '<text><body>'];
   for (const c of d.terms) {
