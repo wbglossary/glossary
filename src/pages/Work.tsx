@@ -322,7 +322,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
                 {canBulk ? <td>{r.can_approve ? <input type="checkbox" aria-label={`Выбрать ${r.code}`} checked={sel.includes(r.id)}
                   onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /> : null}</td> : null}
                 <td className="link nowrap" onClick={() => setOpen(r)}>{r.code}{r.comments ? <span className="ccount"><Icon name="comment" size={13} />{r.comments}</span> : null}</td>
-                <td>{r.type_label}{r.type === 'new' && !r.lang ? <div className="muted small">на все языки</div> : null}{r.ru_only ? <div className="muted small">русская часть (у {r.lang} нет валидатора)</div> : null}</td>
+                <td>{r.type_label}{r.type === 'new' && !r.lang ? <div className="muted small">{r.target_langs?.length ? `на ${r.target_langs.join(', ')}` : 'на все языки'}</div> : null}{r.ru_only ? <div className="muted small">русская часть (у {r.lang} нет валидатора)</div> : null}</td>
                 <td>{r.tb ? <div className="tb link tb-line" onClick={() => setTerm(r.term_id)}>{r.tb}</div> : null}<b>{r.ru}</b>{clean(r.definition) ? <div className="muted small clip" title={r.definition}>{r.definition}</div> : null}</td>
                 <td className="small">
                   {r.type === 'obsolete' ? <>Причина: {r.reason}</> : <>

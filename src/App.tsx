@@ -84,7 +84,7 @@ export function App() {
     { page: 'my-requests', label: 'Мои заявки', show: can.submit(me) },
     { page: 'archive', label: 'Архив', show: can.archive(me) },
     { page: 'export', label: 'Выгрузка', show: can.export(me) },
-    { page: 'import', label: 'Загрузка переводов', show: me.role === 'manager' || me.role === 'owner' },
+    { page: 'import', label: 'Загрузка терминов', show: me.role === 'manager' || me.role === 'owner' },
     { page: 'log', label: 'Журнал изменений', show: can.log(me) },
     { page: 'admin', label: 'Администрирование', show: can.admin(me) },
     { page: 'help', label: 'Инструкция', show: true },

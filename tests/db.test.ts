@@ -521,7 +521,7 @@ test('загрузка переводов подрядчика и удалени
     { ru: 'QR-код', tr: { XX: 'z' } }
   ];
   const pre = await call('man', 'import_translations', { p_rows: rows });
-  assert.deepEqual(pre.rows.map((x: any) => x.match), ['ok', 'ok', 'ok', 'ambiguous', 'not_found', 'ok']);
+  assert.deepEqual(pre.rows.map((x: any) => x.match), ['ok', 'ok', 'ok', 'ambiguous', 'new', 'ok'], 'нового термина нет в глоссарии — будет заявка');
   assert.equal(pre.rows[0].langs.AM.status, 'same');
   assert.equal(pre.rows[0].langs.KA.status, 'same');
   assert.equal(pre.rows[1].langs.HY.as, 'draft', 'у HY есть валидатор — черновик');
@@ -531,6 +531,7 @@ test('загрузка переводов подрядчика и удалени
   assert.equal(pre.added, 0);
   const done = await call('man', 'import_translations', { p_rows: rows, p_apply: true });
   assert.equal(done.added, 3);
+  assert.equal(done.requests.length, 1);
   const g = await gl('Только грузинский');
   assert.equal(g.items[0].cells.AM.s, 'unchecked');
   assert.equal(g.items[0].cells.HY.s, 'draft');
@@ -551,4 +552,37 @@ test('«Не актуально для языка» сразу для неско
   assert.equal((await call('reader', 'glossary_page', { p_q: 'Двойник' })).items[0].cells.EN.s, 'unused');
   const back = await call('ven', 'set_unused_many', { p_terms: ids, p_lang: 'EN', p_unused: false });
   assert.equal(back.changed, ids.length);
+});
+
+test('загрузка таблицы: новые термины уходят заявкой на валидацию, повторы пропускаются', async () => {
+  const rows = [
+    { ru: 'Новинка из Smartcat', definition: 'тест', tr: { KA: 'ახალი', AM: 'አዲስ' } },
+    { ru: 'новинка из smartcat', tr: { KA: 'ახალი 2' } },
+    { ru: 'QR-код', tr: { KA: 'QR-კოდი' } }
+  ];
+  const pre = await call('man', 'import_translations', { p_rows: rows });
+  assert.deepEqual(pre.rows.map((x: any) => x.match), ['new', 'dup_in_file', 'ok']);
+  assert.equal(pre.rows[0].langs.KA.status, 'new');
+  const [p] = await sql<{ id: number }>(`select id from projects where name = 'ПВЗ'`);
+  const done = await call('man', 'import_translations', { p_rows: rows, p_apply: true, p_project: p.id });
+  assert.equal(done.requests.length, 1);
+  const z = await req(`code = '${done.requests[0]}'`);
+  assert.equal(z.status, 'pending');
+  const ka = await call('vka', 'lang_requests', { p_lang: 'KA' });
+  assert.ok(ka.some((x: any) => x.code === z.code), 'валидатор KA видит заявку');
+  // второй раз — уже в заявке, ничего не создаём
+  const again = await call('man', 'import_translations', { p_rows: rows.slice(0, 1), p_apply: true });
+  assert.equal(again.rows[0].match, 'in_request');
+  assert.equal(again.requests.length, 0);
+  // валидатор утверждает — термин в проекте ПВЗ, переводы других языков — черновики их валидаторам
+  const a = await approve('vka', z.id, z.version, true);
+  const c = await card(a.tb);
+  assert.equal(lang(c, 'KA').status, 'approved');
+  assert.equal(lang(c, 'AM').status, 'draft', 'у AM в тестах есть валидатор — черновик ему на проверку');
+  assert.deepEqual(c.projects.map((x: any) => x.name), ['ПВЗ']);
+  // язык без валидатора — проверять некому: термин сразу, «Без проверки»
+  await sql(`insert into languages(code, name, smartcat_code, kind, sort) values ('SW','суахили','sw','short',9) on conflict do nothing`);
+  const d = await call('man', 'import_translations', { p_rows: [{ ru: 'Только суахили', tr: { SW: 'Pekee' } }], p_apply: true });
+  assert.equal(d.rows[0].match, 'direct');
+  assert.equal((await gl('Только суахили')).items[0].cells.SW.s, 'unchecked');
 });
