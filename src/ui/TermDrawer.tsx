@@ -3,6 +3,7 @@ import { fmtDate, langGen, rpc, type Forbidden, type GlossaryItem, type Me, type
 import { AuthorChip, CopyButton } from './bits';
 import { ChangeModal, type ChangeMode } from './ChangeModal';
 import { Button, Confirm, Drawer, Message, SearchBox, StatusBadge, useAsync } from './kit';
+import { LogCell } from '../logText';
 
 /** Карточка термина справа. Кнопки — только доступные; права всё равно проверяет база. */
 export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number | null; onClose: () => void; onChanged?: () => void }) {
@@ -160,7 +161,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
                 <tr key={i}>
                   <td className="nowrap">{fmtDate(h.at)}</td><td>{h.user}</td>
                   <td>{h.action}{h.lang ? ` (${h.lang})` : ''}{h.details ? <div className="muted small">{h.details}</div> : null}</td>
-                  <td>{short(h.before)}</td><td>{short(h.after)}</td>
+                  <td><LogCell value={h.before} max={140} /></td><td><LogCell value={h.after} max={140} /></td>
                 </tr>
               ))}</tbody>
             </table>

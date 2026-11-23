@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { fmtDate, rpc } from '../api';
 import type { PageProps } from '../router';
 import { Empty, Message, Pager, useAsync } from '../ui/kit';
+import { LogCell } from '../logText';
 
 interface LogRow { id: number; at: string; user: string; action: string; tb: string | null; request_code: string | null; lang: string | null; before: string | null; after: string | null; details: string | null }
 interface LogData { items: LogRow[]; total: number; page: number; pages: number; actions: string[]; users: { id: number; name: string }[] }
@@ -41,7 +42,7 @@ export function LogPage({ me }: PageProps) {
             <tr key={r.id}>
               <td className="nowrap">{fmtDate(r.at)}</td><td>{r.user}</td>
               <td className="tb">{[r.tb, r.request_code].filter(Boolean).join(' · ')}</td>
-              <td>{r.action}</td><td>{r.lang}</td><td>{short(r.before)}</td><td>{short(r.after)}</td><td className="muted small">{short(r.details)}</td>
+              <td>{r.action}</td><td>{r.lang}</td><td><LogCell value={r.before} /></td><td><LogCell value={r.after} /></td><td className="muted small">{short(r.details)}</td>
             </tr>
           ))}</tbody>
         </table>
