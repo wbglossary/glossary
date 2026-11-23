@@ -106,6 +106,10 @@ try {
   await mark(['text:Глоссарий', 'text:Рабочая область', 'text:Инструкция']);
   await shot('menu', '.side', 10);
 
+  // 1б. Тема
+  await mark(['.theme-btn']);
+  await shot('theme', '.who', 16);
+
   // 2. Поиск
   await go('glossary');
   await type('input.search', 'скид');
@@ -118,6 +122,12 @@ try {
   await click('.grid tbody tr'); await waitFor('.drawer'); await sleep(900);
   await mark(['.drawer .copy', 'text:Заменить', 'text:Комментарии']);
   await shot('card', '.drawer', 0, 820);
+
+  // 3б. Комментарий лингвиста
+  await click('text:Комментарий лингвиста и'); await sleep(700);
+  await mark(['.drawer .card textarea', '.drawer .card .btn.primary']);
+  const fr = await js(`const c = document.querySelector('.drawer .card').getBoundingClientRect(); return { x: c.left + scrollX, y: c.top + scrollY, w: c.width, h: c.height };`);
+  await shot('lang-comment', fr, 18);
 
   // 4. Столбцы
   await go('home'); await go('glossary');
@@ -163,6 +173,16 @@ try {
   await go('my-requests');
   await mark(['.grid tbody tr td.link']);
   await shot('my-requests', { x: 250, y: 60, w: 1050, h: 240 }, 0);
+
+  // 10б. Отозвать заявку
+  await click('.grid tbody tr'); await waitFor('.drawer'); await sleep(800);
+  await mark(['text:Отозвать заявку']);
+  await shot('withdraw', '.drawer', 0, 620);
+
+  // 10в. Меню менеджера
+  await go('home');
+  await mark(['text:Предложить термин', 'text:Загрузка терминов', 'text:Выгрузка']);
+  await shot('menu-manager', '.side', 10);
 
   // 11. Загрузка переводов
   await go('import');
