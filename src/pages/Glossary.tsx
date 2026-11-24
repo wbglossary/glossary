@@ -17,7 +17,8 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const [size, setSize] = usePageSize();
   const myLangs = me.langs.map((l) => l.code);
   // у переводчиков и валидаторов «не актуально» своего языка скрыто сразу; у остальных — по галочке, для показанных языков
-  const hideUnused = me.prefs.hide_unused ?? myLangs.length > 0;
+  const canHide = ['owner', 'manager', 'validator', 'translator'].includes(me.role);
+  const hideUnused = canHide && (me.prefs.hide_unused ?? myLangs.length > 0);
   const wrap = useFillHeight<HTMLDivElement>();
   const [open, setOpen] = useState<number | null>(null);
   const [chooser, setChooser] = useState(false);
@@ -94,9 +95,11 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
         <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
         <span style={{ flex: 1 }} />
         <Button disabled={dl} onClick={downloadShown}>{dl ? 'Готовлю…' : '⬇ Скачать (.xlsx)'}</Button>
-        <label className="small" title={myLangs.length ? '' : 'Скрываются термины, которые «не актуально» для всех показанных языков'}>
-          <input type="checkbox" checked={hideUnused} disabled={saving}
-            onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально»{myLangs.length ? ` (${myLangs.join(', ')})` : ''}</label>
+        {canHide ? (
+          <label className="small" title={myLangs.length ? '' : 'Скрываются термины, которые «не актуально» для всех показанных языков'}>
+            <input type="checkbox" checked={hideUnused} disabled={saving}
+              onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально»{myLangs.length ? ` (${myLangs.join(', ')})` : ''}</label>
+        ) : null}
         {dupes ? <a href="#/glossary">показать все термины</a> : null}
       </div>
       {chooser ? (

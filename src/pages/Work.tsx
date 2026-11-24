@@ -42,7 +42,8 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [size, setSize] = usePageSize();
-  const hideUnused = me.prefs.hide_unused ?? true;   // «не актуально» своего языка скрыто сразу
+  const canHide = ['owner', 'manager', 'validator', 'translator'].includes(me.role);
+  const hideUnused = canHide && (me.prefs.hide_unused ?? true);   // «не актуально» своего языка скрыто сразу
   const wrap = useFillHeight<HTMLDivElement>();
   const [open, setOpen] = useState<number | null>(null);
   const [sel, setSel] = useState<number[]>([]);
@@ -127,7 +128,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
               {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <SearchBox value={q} onChange={setQ} />
-            {tab === 'mine' && status === 'all' ? (
+            {canHide && tab === 'mine' && status === 'all' ? (
               <label className="small"><input type="checkbox" checked={hideUnused} disabled={savingCols}
                 onChange={async (e) => { setSavingCols(true); try { await rpc('set_prefs', { p_prefs: { ...me.prefs, hide_unused: e.target.checked } }); await reloadMe(); } finally { setSavingCols(false); } }} /> Скрыть «не актуально»</label>
             ) : null}

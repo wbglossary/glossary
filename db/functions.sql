@@ -545,7 +545,7 @@ begin
       'propose_obsolete', u.role in ('manager','validator') and t.status = 'active',
       'archive', is_owner(u) and t.status = 'active',
       'restore', (is_owner(u) or is_en_validator(u)) and t.status = 'archived',
-      'delete', is_owner(u),
+      'delete', is_owner(u) or is_en_validator(u),
       'comment', u.role <> 'reader',
       'hide_comment', is_owner(u) or is_en_validator(u)),
     'langs', (select jsonb_agg(jsonb_build_object(
@@ -1344,7 +1344,7 @@ create or replace function delete_term(p_term int, p_typed_tb text) returns void
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); t terms; v_trs text;
 begin
-  if not is_owner(u) then perform app_error('Окончательно удалить может только владелец.'); end if;
+  if not (is_owner(u) or is_en_validator(u)) then perform app_error('Окончательно удалить термин могут владелец и валидатор английского.'); end if;
   select * into t from terms where id = p_term for update;
   if not found then perform app_error('Термин не найден.'); end if;
   if upper(btrim(coalesce(p_typed_tb, ''))) <> t.tb then perform app_error('Чтобы удалить, впишите номер ' || t.tb || '.'); end if;
@@ -1485,7 +1485,7 @@ declare u profiles := app_profile();
 begin
   if u.role not in ('owner','validator') then perform app_error('Архив видят владелец и валидаторы.'); end if;
   return jsonb_build_object(
-    'can_restore', is_owner(u) or is_en_validator(u), 'can_delete', is_owner(u),
+    'can_restore', is_owner(u) or is_en_validator(u), 'can_delete', is_owner(u) or is_en_validator(u),
     'terms', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'version', t.version,
         'reason', case t.archive_reason when 'all_unused' then 'все языки «Не актуально для языка»' else 'вручную' end,
         'updated_at', t.updated_at, 'updated_by', display_name(u, t.updated_by), 'cells', lang_cells(t.id)) order by lower(t.ru))

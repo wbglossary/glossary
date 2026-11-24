@@ -371,13 +371,14 @@ test('обратная связь: пишут все, видит своё; вл�
   assert.ok(!(await call('reader', 'dashboard')).some((c: { key: string }) => c.key === 'fb-answers'), 'после просмотра счётчик пропадает');
 });
 
-test('архив вручную и удаление — только владелец; журнал нельзя менять', async () => {
+test('архив вручную — владелец; удаление — владелец и валидатор английского; журнал нельзя менять', async () => {
   const id = (await gl('корзина')).items[0].id;
   const c = await call('owner', 'term_card', { p_id: id });
   await fails(call('ven', 'archive_term', { p_term: id, p_version: c.version }), /владелец/);
-  await fails(call('ven', 'delete_term', { p_term: id, p_typed_tb: c.tb }), /только владелец/);
+  await fails(call('vka', 'delete_term', { p_term: id, p_typed_tb: c.tb }), /владелец и валидатор английского/);
+  assert.equal((await call('ven', 'term_card', { p_id: id })).can.delete, true);
   await fails(call('owner', 'delete_term', { p_term: id, p_typed_tb: 'TB-1' }), /впишите номер/);
-  await call('owner', 'delete_term', { p_term: id, p_typed_tb: c.tb.toLowerCase() });
+  await call('ven', 'delete_term', { p_term: id, p_typed_tb: c.tb.toLowerCase() });
   assert.equal(await card(c.tb), null);
   const log = await call('owner', 'log_page', { p_f: { tb: c.tb } });
   assert.ok(log.items.some((x: any) => x.action === 'Термин удалён окончательно'));
