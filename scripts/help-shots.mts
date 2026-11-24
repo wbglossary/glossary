@@ -33,7 +33,7 @@ writeFileSync(new URL('../public/_help-demo.xlsx', import.meta.url), Buffer.from
     const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Подрядчик');
     ws.addRow(['Русский термин', 'Определение', 'Амхарский']);
-    ws.addRow(['Корзина', '', 'ቅርጫት']); ws.addRow(['Скидка', '', 'ቅናሽ']); ws.addRow(['Доставка', '', 'ማድረስ']);
+    ws.addRow(['Корзина', '', 'ቅርጫት']); ws.addRow(['Скидка', '', 'ቅናሽ']); ws.addRow(['Доставка', '', 'ማድረስ']); ws.addRow(['Возврат', '', 'መመለስ']);
     return wb.xlsx.writeBuffer();
   })()));
 
@@ -135,6 +135,16 @@ try {
   await mark(['text:Скрыть настройку', '.colpick']);
   await shot('columns', { x: 250, y: 60, w: 1050, h: 380 }, 0);
 
+  // 4б. Инструменты глоссария: скрыть «не актуально», скачать, все сразу
+  await go('home'); await go('glossary');
+  await mark(['text:⬇ Скачать', '.toolbar label.small']);
+  await shot('glossary-tools', { x: 250, y: 60, w: 1050, h: 200 }, 0);
+  await js(`document.querySelectorAll('.hs-badge').forEach((e) => e.remove()); document.querySelectorAll('.hs-mark').forEach((e) => e.classList.remove('hs-mark'));`);
+  await js(`document.querySelector('.pager').scrollIntoView({ block: 'center' })`); await sleep(300);
+  await mark(['.pager-size']);
+  const pg = await js(`const b = document.querySelector('.pager').getBoundingClientRect(); return { x: b.left + scrollX, y: b.top + scrollY, w: Math.min(b.width, 700), h: b.height };`);
+  await shot('pager', pg, 16);
+
   // 5. Переводчик: вписать перевод
   await go('work?tab=mine&status=need', 'en');
   await click('text:Нужен перевод'); await sleep(1200);
@@ -181,8 +191,22 @@ try {
 
   // 10в. Меню менеджера
   await go('home');
-  await mark(['text:Предложить термин', 'text:Загрузка терминов', 'text:Выгрузка']);
+  await mark(['text:Предложить термин', 'text:Выгрузка', 'text:Загрузка терминов']);
   await shot('menu-manager', '.side', 10);
+
+  // 10г. Все заявки
+  await go('my-requests');
+  await click('text:Все заявки'); await sleep(1200);
+  await mark(['text:Все заявки', 'text:На рассмотрении']);
+  await shot('all-requests', { x: 250, y: 60, w: 1050, h: 330 }, 0);
+
+  // 10д. «Не актуально» для языка без валидатора — сразу для нескольких терминов
+  await go('home'); await go('glossary');
+  await js(`const cb = document.querySelectorAll('.grid tbody input[type=checkbox]'); cb[0].click(); cb[1].click();`); await sleep(400);
+  await js(`const s = document.querySelector('.bulk-unused select'); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(s, s.options[1].value); s.dispatchEvent(new Event('change', { bubbles: true }));`);
+  await sleep(300);
+  await mark(['.bulk-unused select', 'text:Не актуально для языка']);
+  await shot('bulk-unused', { x: 250, y: 60, w: 1050, h: 330 }, 0);
 
   // 11. Загрузка переводов
   await go('import');
@@ -194,10 +218,25 @@ try {
   await mark(['.filepick label', 'text:Проверить', 'text:Загрузить']);
   await shot('import', { x: 250, y: 60, w: 1050, h: 760 }, 0, 780);
 
+  // 11б. После загрузки: что не загрузилось — красным, с причиной
+  await js(`document.querySelectorAll('.hs-badge').forEach((e) => e.remove()); document.querySelectorAll('.hs-mark').forEach((e) => e.classList.remove('hs-mark'));`);
+  await click('text:Загрузить'); await sleep(2000);
+  await js(`document.querySelector('.msg')?.scrollIntoView({ block: 'start' })`); await sleep(300);
+  await mark(['.msg', '.row-fail-why td:nth-child(2)']);
+  const ff = await js(`const a = document.querySelector('.msg').getBoundingClientRect(); const b = document.querySelector('.row-fail-why').getBoundingClientRect(); return { x: a.left + scrollX, y: a.top + scrollY, w: Math.max(a.width, b.right - a.left), h: b.bottom - a.top };`);
+  await shot('import-fail', ff, 18, 900);
+
   // 12. Выгрузка
   await go('export');
   await mark(['text:Скачать для Smartcat']);
   await shot('export', { x: 250, y: 60, w: 1050, h: 420 }, 0);
+
+  // 12б. Для подрядчиков
+  await js(`document.querySelectorAll('.hs-badge').forEach((e) => e.remove()); document.querySelectorAll('.hs-mark').forEach((e) => e.classList.remove('hs-mark'));`);
+  await js(`[...document.querySelectorAll('h3')].find((h) => h.textContent.includes('Для подрядчиков')).scrollIntoView({ block: 'center' })`); await sleep(300);
+  await mark(['text:Скачать пустые']);
+  const cr = await js(`const c = [...document.querySelectorAll('h3')].find((h) => h.textContent.includes('Для подрядчиков')).parentElement.getBoundingClientRect(); return { x: c.left + scrollX, y: c.top + scrollY, w: c.width, h: c.height };`);
+  await shot('export-contractor', cr, 16);
 
   // 13. Обратная связь
   await go('home');
@@ -205,8 +244,14 @@ try {
   await click('.fb-fab'); await waitFor('.modal'); await sleep(500);
   await shot('feedback', '.modal', 10);
 
+  // 13б. Главная: «Вас ждут» — свернуть, «Без перевода» одной строкой
+  await go('home', 'owner');
+  await mark(['text:Свернуть', '.dash-langs']);
+  const dh = await js(`const a = document.querySelector('.dash-head').getBoundingClientRect(); const b = document.querySelector('.dash').getBoundingClientRect(); return { x: a.left + scrollX, y: a.top + scrollY, w: b.width, h: b.bottom - a.top };`);
+  await shot('home-dash', dh, 18);
+
   // 14. Владелец: добавить человека
-  await go('admin', 'owner');
+  await go('admin');
   await js(`[...document.querySelectorAll('h3')].find((h) => h.textContent.includes('Добавить человека'))?.scrollIntoView({ block: 'center' })`);
   await sleep(400);
   const r = await js(`const h = [...document.querySelectorAll('h3')].find((h) => h.textContent.includes('Добавить человека')).parentElement.getBoundingClientRect(); return { x: h.left + scrollX, y: h.top + scrollY, w: h.width, h: h.height };`);
