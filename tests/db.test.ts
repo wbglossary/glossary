@@ -661,3 +661,10 @@ test('выгрузка: у языка без валидатора идёт и «
   const k = await call('man', 'export_data', { p_langs: ['KA'] });
   assert.ok(!k.terms.some((t: any) => (t.tr.KA ?? []).includes('ალგორითმები')), 'черновик KA — не попадает');
 });
+
+test('выгрузка: термин без переводов на выбранные языки не попадает', async () => {
+  const d = await call('man', 'export_data', { p_langs: ['HY'] });
+  assert.ok(d.terms.length > 0 && d.terms.every((t: any) => t.tr.HY?.length), 'только термины с переводом HY');
+  const n = await call('man', 'export_count', { p_langs: ['HY'] });
+  assert.equal(n, d.terms.length);
+});

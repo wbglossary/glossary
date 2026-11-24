@@ -15,7 +15,7 @@ export function ExportPage({ me }: PageProps) {
   // сначала — сокращённые языки (их переводят подрядчики), потом остальные
   const contractorLangs = [...me.languages.filter((l) => l.active && l.kind === 'short'), ...me.languages.filter((l) => l.active && l.kind === 'full')];
   const [cLangs, setCLangs] = useState<string[]>(me.languages.filter((l) => l.active && l.kind === 'short').map((l) => l.code));
-  const count = useAsync(() => rpc<number>('export_count', { p_project: project }), [project]);
+  const count = useAsync(() => rpc<number>('export_count', { p_project: project, p_langs: langs }), [project, langs.join(',')]);
   const hist = useAsync(() => rpc<Hist[]>('export_history'), []);
 
   const stamp = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
@@ -72,7 +72,7 @@ export function ExportPage({ me }: PageProps) {
           ))}</div>
           <span className="muted small">Сокращённые глоссарии подрядчиков ({me.languages.filter((l) => l.kind === 'short').map((l) => l.code).join(', ') || '—'}) в Smartcat не выгружаются.</span>
         </div>
-        <p>Терминов будет выгружено: <b>{count.data ?? '…'}</b>. Попадают согласованные переводы, а у языков без валидатора (например, TR, SW) — и «Без проверки». «Не актуально для языка» — пустая ячейка.</p>
+        <p>Терминов будет выгружено: <b>{count.data ?? '…'}</b>. Попадают согласованные переводы, а у языков без валидатора (например, TR, SW) — и «Без проверки». «Не актуально для языка» — пустая ячейка. Термины без единого перевода на выбранные языки в файл не попадают.</p>
         {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
         <div className="actions">
           <Button kind="primary" disabled={!!busy} onClick={() => run('xlsx')}>{busy === 'xlsx' ? 'Готовлю…' : 'Скачать для Smartcat (.xlsx)'}</Button>

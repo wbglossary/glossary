@@ -1523,6 +1523,13 @@ end $$;
 -- API: выгрузка (файл собирается в браузере). В Smartcat — только полные языки.
 -- =====================================================================
 
+-- Есть ли у термина хоть один перевод, который пойдёт в выгрузку на эти языки
+create or replace function has_export_tr(p_term int, p_langs text[]) returns boolean language sql stable as $$
+  select exists (select 1 from translations x left join term_langs tl on tl.term_id = x.term_id and tl.lang = x.lang
+    where x.term_id = p_term and x.lang = any(p_langs) and not coalesce(tl.unused, false)
+      and (x.status = 'approved' or (x.status = 'unchecked' and not lang_has_validator(x.lang))))
+$$;
+
 create or replace function export_data(p_langs text[], p_project int default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); v_langs text[];
@@ -1545,6 +1552,7 @@ begin
                  from term_langs tl where tl.term_id = t.id and tl.lang = any(v_langs) and not tl.unused), '{}'))
         order by lower(t.ru), t.tb)
       from terms t where t.status = 'active'
+       and has_export_tr(t.id, v_langs)   -- без единого перевода на выбранные языки термин не выгружаем
        and (p_project is null or exists (select 1 from term_projects tp where tp.term_id = t.id and tp.project_id = p_project))), '[]'));
 end $$;
 
@@ -1583,12 +1591,15 @@ begin
        and exists (select 1 from unnest(v_langs) l where lang_status(t.id, l) in ('need','optional'))), '[]'));
 end $$;
 
-create or replace function export_count(p_project int default null) returns int
+drop function if exists export_count(integer);
+create or replace function export_count(p_project int default null, p_langs text[] default null) returns int
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile();
+declare u profiles := app_profile(); v_langs text[];
 begin
   if not can_export(u) then perform app_error('Выгружать глоссарий могут менеджер и владелец.'); end if;
+  v_langs := array(select l.code from languages l where l.code = any(p_langs) and l.kind = 'full' and l.active);
   return (select count(*) from terms t where t.status = 'active'
+    and (p_langs is null or has_export_tr(t.id, v_langs))
     and (p_project is null or exists (select 1 from term_projects tp where tp.term_id = t.id and tp.project_id = p_project)));
 end $$;
 
@@ -2064,7 +2075,7 @@ begin
     'edit_ru(integer, integer, jsonb)', 'set_term_project(integer[], integer, boolean)', 'archive_term(integer, integer)', 'restore_term(integer, integer)', 'delete_term(integer, text)',
     'merge_terms(integer, integer, jsonb)', 'add_term_comment(integer, text)', 'hide_term_comment(integer)',
     'work_page(text, text, text, integer, text, integer, integer, boolean)', 'archive_lists(text)', 'log_page(jsonb, integer, integer)',
-    'export_data(text[], integer)', 'export_contractor(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',
+    'export_data(text[], integer)', 'export_contractor(text[], integer)', 'export_view(integer)', 'export_count(integer, text[])', 'log_export(text[], integer, text, integer)', 'export_history()',
     'admin_users()', 'admin_create_user(text, text, text, text, jsonb)', 'admin_update_user(integer, text, text, text, jsonb)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
     'admin_add_project(text)', 'admin_update_project(integer, text, boolean)', 'admin_delete_project(integer)',
