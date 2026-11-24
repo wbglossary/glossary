@@ -913,8 +913,21 @@ begin
 end $$;
 
 create or replace function can_see_request(u profiles, r requests) returns boolean language sql stable as $$
-  select is_owner(u) or r.author_id = u.id or exists (select 1 from unnest(work_langs(u)) x where request_for_lang(r, x))
+  select is_owner(u) or u.role = 'manager' or r.author_id = u.id or exists (select 1 from unnest(work_langs(u)) x where request_for_lang(r, x))
 $$;
+
+-- Все заявки (для менеджеров и владельца). p_status: pending | done | all
+create or replace function all_requests(p_status text default 'pending', p_q text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile();
+begin
+  if u.role not in ('owner','manager') then perform app_error('Все заявки видят менеджеры и владелец.'); end if;
+  return coalesce((select jsonb_agg(request_json(u, r) order by r.created_at desc) from (
+    select * from requests r
+     where case p_status when 'pending' then r.status = 'pending' when 'done' then r.status <> 'pending' else true end
+       and (p_q is null or btrim(p_q) = '' or norm_term(r.ru) like '%' || norm_term(p_q) || '%' or upper(r.code) like '%' || upper(btrim(p_q)) || '%')
+     order by r.created_at desc limit 2000) r), '[]');
+end $$;
 
 create or replace function add_request_comment(p_request int, p_body text) returns void
 language plpgsql security definer set search_path = public as $$
@@ -1484,8 +1497,8 @@ create or replace function log_page(p_f jsonb default '{}', p_page int default 1
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); v_total int; v_items jsonb; v_all boolean;
 begin
-  if u.role not in ('owner','validator') then perform app_error('Журнал видят владелец и валидаторы.'); end if;
-  v_all := is_owner(u) or is_en_validator(u);
+  if u.role not in ('owner','manager','validator','translator') then perform app_error('Журнал видят владелец, менеджеры, валидаторы и переводчики.'); end if;
+  v_all := is_owner(u) or is_en_validator(u) or u.role = 'manager';
   with base as (
     select * from audit_log a
      where (v_all or a.lang = any(work_langs(u)) or (a.lang is null and a.tb is not null))
@@ -1984,7 +1997,7 @@ begin
     'glossary_page(text, integer, text, text, integer, integer, boolean, text[])', 'recent_terms(integer)', 'term_card(integer, text)',
     'similar_terms(text)', 'check_duplicates(text, jsonb, integer)', 'submit_request(jsonb)', 'set_request_translation(integer, text, text)',
     'edit_request(integer, jsonb)', 'approve_request(integer, integer, boolean)', 'reject_request(integer, integer)',
-    'lang_requests(text)', 'my_requests()', 'add_request_comment(integer, text)', 'list_request_comments(integer)',
+    'lang_requests(text)', 'my_requests()', 'all_requests(text, text)', 'add_request_comment(integer, text)', 'list_request_comments(integer)',
     'set_cell_text(integer, text, text, integer)', 'set_lang_approval(jsonb, text, boolean)', 'edit_translation(integer, text, text)',
     'edit_lang_fields(integer, text, jsonb, integer)', 'set_unused(integer, text, boolean)', 'set_unused_many(integer[], text, boolean)',
     'propose_obsolete(integer, text)', 'answer_obsolete(integer, text, text)', 'close_obsolete(integer)',

@@ -303,7 +303,7 @@ test('анонимность: подрядчики под номерами, со
   assert.deepEqual(byOwner, ['c1', 'vka', 'c2']);
   const hist = (await call('c1', 'term_card', { p_id: id })).history.map((h: any) => h.user);
   assert.ok(!hist.some((n: string) => ['vka', 'vhy', 'ven', 'ten', 'tka', 'man', 'owner'].includes(n)), JSON.stringify(hist));
-  await fails(call('c1', 'log_page', {}), /владелец и валидаторы/);
+  await fails(call('c1', 'log_page', {}), /Журнал видят/);
   await fails(call('c1', 'work_page', { p_lang: 'KA' }), /грузинского/);
   const log = await call('vka', 'log_page', { p_f: {} });
   assert.ok(log.items.some((x: any) => x.user === 'Подрядчик 1'));
@@ -615,4 +615,15 @@ test('выгрузка для подрядчика: только термины 
   assert.ok(d.terms.length > 0);
   assert.ok(d.terms.every((t: any) => !t.tr.AM), 'у всех нет перевода на AM');
   assert.ok(!d.terms.some((t: any) => t.tb === 'TB-00001'), 'TB-00001 уже переведён на AM');
+});
+
+test('журнал — менеджерам и переводчикам; все заявки — менеджерам и владельцу', async () => {
+  const lm = await call('man', 'log_page', {});
+  assert.ok(lm.total > 0, 'менеджер видит журнал');
+  const lt = await call('tka', 'log_page', {});
+  assert.ok(lt.items.every((x: any) => x.lang === 'KA' || x.lang === null), 'переводчик — свой язык и русская часть');
+  await fails(call('c1', 'log_page', {}), /Журнал видят/);
+  await fails(call('tka', 'all_requests', {}), /менеджеры и владелец/);
+  const all = await call('man', 'all_requests', { p_status: 'all' });
+  assert.ok(all.some((x: any) => !x.mine), 'видно чужие заявки');
 });

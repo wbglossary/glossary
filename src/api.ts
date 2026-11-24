@@ -54,7 +54,8 @@ export const can = {
   export: (m: Me) => m.role === 'manager' || m.role === 'owner',
   admin: (m: Me) => m.role === 'owner',
   archive: (m: Me) => m.role === 'owner' || m.role === 'validator',
-  log: (m: Me) => m.role === 'owner' || m.role === 'validator',
+  log: (m: Me) => ['owner', 'manager', 'validator', 'translator'].includes(m.role),
+  allRequests: (m: Me) => m.role === 'owner' || m.role === 'manager',
   proposeLangs: (m: Me): string[] =>
     m.langs.length ? m.langs.map((l) => l.code) : m.role === 'contractor' ? m.languages.filter((l) => l.active).map((l) => l.code) : [],
   /** Языки без валидатора, где подрядчик пишет сразу */

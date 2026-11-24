@@ -154,3 +154,40 @@ export async function buildContractorXlsx(d: ContractorData): Promise<Blob> {
   help.getColumn(1).width = 70;
   return new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_TYPE });
 }
+
+/** Скачать из «Глоссария» то, что на экране: те же фильтры, столбцы и языки. */
+export async function buildGlossaryXlsx(items: {
+  tb: string; ru: string; definition?: string; examples?: string; comment?: string; projects: string[];
+  cells: Record<string, Cell>;
+}[], fields: { key: string; label: string }[], langs: string[], langComments: boolean): Promise<Blob> {
+  const { default: ExcelJS } = await import('exceljs');
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Глоссарий');
+  const header = ['Номер', 'Русский термин', ...fields.map((f) => f.label)];
+  for (const l of langs) { header.push(l); if (langComments) header.push(`Комментарий ${l}`); }
+  ws.addRow(header);
+  ws.getRow(1).font = { bold: true };
+  ws.views = [{ state: 'frozen', xSplit: 2, ySplit: 1 }];
+  ws.columns.forEach((c, i) => { c.width = i === 0 ? 11 : i === 1 ? 30 : 26; });
+  const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } });
+  for (const t of items) {
+    const vals: string[] = [t.tb, t.ru, ...fields.map((f) => f.key === 'projects' ? t.projects.join(', ') : clean((t as unknown as Record<string, string>)[f.key]))];
+    for (const l of langs) {
+      const c = t.cells[l];
+      const text = c ? c.t.join('; ') : '';
+      vals.push(c && c.s === 'unused' ? 'не актуально' : text && c && LABEL[c.s] ? `${text} (${LABEL[c.s]})` : text);
+      if (langComments) vals.push(c?.c ?? '');
+    }
+    const row = ws.addRow(vals);
+    row.alignment = { wrapText: true, vertical: 'top' };
+    let col = 3 + fields.length;
+    for (const l of langs) {
+      const c = t.cells[l]; const cell = row.getCell(col);
+      if (c?.s === 'need') cell.fill = fill('FFF8C9C9');
+      else if (c?.s === 'draft') cell.fill = fill('FFFFF1C9');
+      else if (c?.s === 'unchecked') cell.fill = fill('FFEDE4FA');
+      col += langComments ? 2 : 1;
+    }
+  }
+  return new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_TYPE });
+}

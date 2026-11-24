@@ -4,6 +4,7 @@ import type { PageProps } from '../router';
 import { Button, Empty, Message, Pager, SearchBox, useAsync, useFillHeight, usePageSize } from '../ui/kit';
 import { TermDrawer } from '../ui/TermDrawer';
 import { DEFAULT_COLS, FIELD_COLS, TermsTable, type FieldCol } from '../ui/TermsTable';
+import { buildGlossaryXlsx, download } from '../exportFile';
 
 export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const active = me.languages.filter((l) => l.active);
@@ -37,6 +38,21 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const savePrefs = async (patch: { langs?: string[]; cols?: string[]; hide_unused?: boolean }) => {
     setSaving(true);
     try { await rpc('set_prefs', { p_prefs: { ...me.prefs, ...patch } }); await reloadMe(); } finally { setSaving(false); }
+  };
+  const [dl, setDl] = useState(false);
+  /** Скачать всё, что подходит под фильтры (все страницы), с выбранными столбцами и языками */
+  const downloadShown = async () => {
+    setDl(true); setBulkMsg(null);
+    try {
+      const all = await rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any',
+        p_page: 1, p_size: 5000, p_dupes: dupes, p_hide_unused: hideUnused ? myLangs : null });
+      const fields = FIELD_COLS.filter((f) => cols.includes(f.key) && f.key !== 'lang_comment').map((f) => ({ key: f.key, label: f.label }));
+      const d = new Date(); const p2 = (n: number) => String(n).padStart(2, '0');
+      const projName = project ? me.projects.find((p) => p.id === project)?.name : '';
+      const name = ['Глоссарий', projName, q ? `«${q}»` : '', lang ? `${lang} ${mode === 'has' ? 'есть' : 'нет'}` : '', `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`].filter(Boolean).join(' — ');
+      download(await buildGlossaryXlsx(all.items, fields, shown, cols.includes('lang_comment')), `${name}.xlsx`);
+      setBulkMsg({ kind: 'ok', text: `Скачано терминов: ${all.items.length}.` });
+    } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setDl(false); }
   };
   const toggle = (list: string[], key: string, on: boolean) => (on ? [...list, key] : list.filter((x) => x !== key));
   const runBulk = async (add: boolean) => {
@@ -75,6 +91,8 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
           </select>
         ) : null}
         <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
+        <span style={{ flex: 1 }} />
+        <Button disabled={dl} onClick={downloadShown}>{dl ? 'Готовлю…' : '⬇ Скачать (.xlsx)'}</Button>
         {myLangs.length ? (
           <label className="small"><input type="checkbox" checked={hideUnused} disabled={saving}
             onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально» для {myLangs.join(', ')}</label>

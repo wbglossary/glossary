@@ -81,7 +81,7 @@ export function App() {
     { page: 'glossary', label: 'Глоссарий', show: true },
     { page: 'work', label: 'Рабочая область', show: showWork },
     { page: 'propose', label: 'Предложить термин', show: can.submit(me) },
-    { page: 'my-requests', label: 'Мои заявки', show: can.submit(me) },
+    { page: 'my-requests', label: can.allRequests(me) ? 'Заявки' : 'Мои заявки', show: can.submit(me) || can.allRequests(me) },
     { page: 'archive', label: 'Архив', show: can.archive(me) },
     { page: 'export', label: 'Выгрузка', show: can.export(me) },
     { page: 'import', label: 'Загрузка терминов', show: me.role === 'manager' || me.role === 'owner' },

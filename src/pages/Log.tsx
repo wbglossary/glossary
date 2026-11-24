@@ -18,7 +18,7 @@ export function LogPage({ me }: PageProps) {
   return (
     <div>
       <h1>Журнал изменений</h1>
-      <p className="muted">{me.role === 'owner' || me.is_en_validator ? 'Все изменения.' : 'Изменения вашего языка и русской части.'} Журнал нельзя изменить или очистить.</p>
+      <p className="muted">{me.role === 'owner' || me.role === 'manager' || me.is_en_validator ? 'Все изменения.' : 'Изменения ваших языков и русской части.'} Журнал нельзя изменить или очистить.</p>
       <div className="toolbar">
         <label>с <input type="date" value={f.from} onChange={(e) => set('from', e.target.value)} /></label>
         <label>по <input type="date" value={f.to} onChange={(e) => set('to', e.target.value)} /></label>
