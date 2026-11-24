@@ -6,8 +6,10 @@ import { Button, Confirm, Drawer, Message, SearchBox, StatusBadge, useAsync } fr
 import { LogCell } from '../logText';
 
 /** Карточка термина справа. Кнопки — только доступные; права всё равно проверяет база. */
-export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number | null; onClose: () => void; onChanged?: () => void }) {
-  const { data: c, error, loading, reload } = useAsync(() => (id ? rpc<TermCard | null>('term_card', { p_id: id }) : Promise.resolve(null)), [id]);
+export function TermDrawer({ me, id, tb, onClose, onChanged }: { me: Me; id: number | null; tb?: string | null; onClose: () => void; onChanged?: () => void }) {
+  // открыть можно по id или по номеру TB (например, из журнала изменений)
+  const { data: c, error, loading, reload } = useAsync(
+    () => (id ? rpc<TermCard | null>('term_card', { p_id: id }) : tb ? rpc<TermCard | null>('term_card', { p_tb: tb }) : Promise.resolve(null)), [id, tb]);
   const [tab, setTab] = useState<'term' | 'comments' | 'history'>('term');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -17,7 +19,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
   const [editFields, setEditFields] = useState<string | null>(null);
   const [showEmpty, setShowEmpty] = useState(false);
   const [editProjects, setEditProjects] = useState(false);
-  useEffect(() => { setShowEmpty(false); setEditProjects(false); }, [id]);
+  useEffect(() => { setShowEmpty(false); setEditProjects(false); }, [id, tb]);
 
   const act = async (fn: () => Promise<unknown>, ok: string, close = false) => {
     setBusy(true);
@@ -31,7 +33,7 @@ export function TermDrawer({ me, id, onClose, onChanged }: { me: Me; id: number 
   }, on ? 'Согласовано.' : 'Согласование снято — перевод снова черновик.');
 
   return (
-    <Drawer open={!!id} onClose={onClose} title={c ? <><span className="tb">{c.tb}</span> {c.ru} <CopyButton text={c.ru} /></> : 'Термин'}>
+    <Drawer open={!!id || !!tb} onClose={onClose} title={c ? <><span className="tb">{c.tb}</span> {c.ru} <CopyButton text={c.ru} /></> : 'Термин'}>
       {loading && !c ? <div>Загрузка…</div> : null}
       {error ? <Message kind="error">{error}</Message> : null}
       {!loading && !c && !error ? <Message kind="warn">Термин не найден — возможно, его удалили или объединили с другим.</Message> : null}

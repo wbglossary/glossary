@@ -465,3 +465,4 @@ td.c-unused { color: var(--muted); }
   }
 }
 .theme-btn { display: inline-flex; align-items: center; gap: 6px; }
+.btn.link.tb-link { font-family: var(--mono); font-size: 13px; padding: 0; min-height: 0; text-decoration: underline; text-underline-offset: 3px; }
