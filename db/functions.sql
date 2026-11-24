@@ -97,6 +97,10 @@ $$;
 create or replace function contractor_direct(u profiles, p_lang text) returns boolean language sql stable as $$
   select u.role = 'contractor' and not lang_has_validator(p_lang)
 $$;
+-- «Не актуально для языка»: валидатор языка; у языка без валидатора — ещё менеджер и владелец
+create or replace function can_mark_unused(u profiles, p_lang text) returns boolean language sql stable as $$
+  select is_validator_of(u, p_lang) or (u.role in ('manager','owner') and not lang_has_validator(p_lang))
+$$;
 create or replace function can_edit_ru(u profiles) returns boolean language sql stable as $$
   select u.role in ('owner','manager') or is_en_validator(u)
 $$;
@@ -563,7 +567,7 @@ begin
           'approve', t.status = 'active' and is_validator_of(u, l.code),
           'edit', t.status = 'active' and (is_validator_of(u, l.code) or contractor_direct(u, l.code)),
           'request', t.status = 'active' and u.role in ('contractor','translator') and l.code = any(propose_langs(u)) and not contractor_direct(u, l.code),
-          'unused', t.status = 'active' and is_validator_of(u, l.code),
+          'unused', t.status = 'active' and can_mark_unused(u, l.code),
           'optional', t.status = 'active' and (can_edit_ru(u) or is_validator_of(u, l.code)),
           'fields', t.status = 'active' and (works_lang(u, l.code) or is_en_validator(u) or contractor_direct(u, l.code)))
       ) order by case when l.code = 'EN' then 0 else 1 end, l.sort, l.code)
@@ -1122,7 +1126,7 @@ create or replace function set_unused(p_term int, p_lang text, p_unused boolean)
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); t terms; v_archived boolean := false; r record;
 begin
-  if not is_validator_of(u, p_lang) then perform app_error('Пометить ' || lang_name(p_lang) || ' может только валидатор ' || lang_gen(p_lang) || '.'); end if;
+  if not can_mark_unused(u, p_lang) then perform app_error('Пометить ' || lang_name(p_lang) || ' может валидатор ' || lang_gen(p_lang) || ', а у языка без валидатора — менеджер или владелец.'); end if;
   select * into t from terms where id = p_term for update;
   if not found or t.status <> 'active' then perform app_error('Термин не найден или в архиве.'); end if;
   perform ensure_term_lang(t.id, p_lang);
@@ -1178,7 +1182,7 @@ create or replace function set_unused_many(p_terms int[], p_lang text, p_unused 
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); v_id int; n int := 0; a int := 0; r jsonb;
 begin
-  if not is_validator_of(u, p_lang) then perform app_error('Пометить ' || lang_name(p_lang) || ' может только валидатор ' || lang_gen(p_lang) || '.'); end if;
+  if not can_mark_unused(u, p_lang) then perform app_error('Пометить ' || lang_name(p_lang) || ' может валидатор ' || lang_gen(p_lang) || ', а у языка без валидатора — менеджер или владелец.'); end if;
   foreach v_id in array coalesce(p_terms, '{}') loop
     if not exists (select 1 from terms where id = v_id and status = 'active') then continue; end if;
     if coalesce((select tl.unused from term_langs tl where tl.term_id = v_id and tl.lang = p_lang), false) = p_unused then continue; end if;
@@ -1473,7 +1477,7 @@ begin
   return jsonb_build_object('items', v_items, 'total', v_total, 'page', greatest(p_page, 1), 'pages', greatest(1, ceil(v_total::numeric / v_size)),
     'counts', v_counts, 'kind', (select kind from languages where code = p_lang),
     'can', jsonb_build_object('type', can_type(u, p_lang), 'approve', is_validator_of(u, p_lang),
-      'unchecked', contractor_direct(u, p_lang)));
+      'unchecked', contractor_direct(u, p_lang), 'unused', can_mark_unused(u, p_lang)));
 end $$;
 
 -- =====================================================================

@@ -10,7 +10,7 @@ import { Icon } from '../ui/Icon';
 
 interface WorkPageData {
   items: WorkItem[]; total: number; page: number; pages: number; kind: 'full' | 'short';
-  counts: { need: number; draft: number; review: number }; can: { type: boolean; approve: boolean; unchecked: boolean };
+  counts: { need: number; draft: number; review: number }; can: { type: boolean; approve: boolean; unchecked: boolean; unused: boolean };
 }
 
 /** Столбцы рабочей области, которые можно включать и выключать. Номер, русский термин и перевод видны всегда. */
@@ -79,6 +79,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
     setSel([]); data.reload();
   };
   const selectable = items;
+  const canSel = !!(d?.can.approve || d?.can.unused);
   const selRows = items.filter((x) => sel.includes(x.id));
   const toApprove = selRows.filter((x) => x.status === 'draft' || x.status === 'unchecked');
   const markUnused = async (rows: WorkItem[], unused: boolean) => {
@@ -135,7 +136,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
             <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
             {d?.can.approve ? <Button kind="primary" disabled={!toApprove.length} why={!toApprove.length ? 'Отметьте строки с черновиком' : undefined}
               onClick={() => approveRows(toApprove)}>Согласовать выбранные ({toApprove.length})</Button> : null}
-            {d?.can.approve && sel.length ? (status === 'unused' && tab === 'mine'
+            {d?.can.unused && sel.length ? (status === 'unused' && tab === 'mine'
               ? <Button onClick={() => markUnused(selRows, false)}>Вернуть в работу ({sel.length})</Button>
               : <Button onClick={() => { if (window.confirm(`Отметить ${sel.length} терм. «Не актуально для языка»? Ячейки станут белыми, в выгрузке — пустыми. Вернуть можно в фильтре «Не актуально для языка».`)) markUnused(selRows, true); }}>Не актуально для языка ({sel.length})</Button>) : null}
           </div>
@@ -158,9 +159,9 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
           ) : null}
           {data.error ? <Message kind="error">{data.error}</Message> : null}
           <div className="table-wrap" ref={wrap}>
-            <table className={`grid sticky${d?.can.approve ? ' with-check' : ''}`}>
+            <table className={`grid sticky${canSel ? ' with-check' : ''}`}>
               <thead><tr>
-                {d?.can.approve ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
+                {canSel ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
                 <th className="s1">Номер</th><th className="s2">Русский термин</th><th className="wide">{lang}</th>
                 {show('definition') ? <th>Определение</th> : null}
@@ -175,7 +176,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id} className={open === r.id ? 'sel' : ''}>
-                    {d?.can.approve ? <td className="s0"><input type="checkbox" checked={sel.includes(r.id)}
+                    {canSel ? <td className="s0"><input type="checkbox" checked={sel.includes(r.id)}
                       onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td> : null}
                     <td className="tb link s1" onClick={() => setOpen(r.id)}>{r.tb}</td>
                     <td className="link s2" onClick={() => setOpen(r.id)}><b>{r.ru}</b>{tab === 'new' ? <div className="muted small">{fmtDate(r.created_at, false)}</div> : null}</td>

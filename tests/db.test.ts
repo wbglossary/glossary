@@ -547,7 +547,7 @@ test('загрузка переводов подрядчика и удалени
 
 test('«Не актуально для языка» сразу для нескольких терминов', async () => {
   const ids = (await call('reader', 'glossary_page', { p_q: 'Двойник' })).items.map((x: any) => x.id);
-  await fails(call('tka', 'set_unused_many', { p_terms: ids, p_lang: 'KA', p_unused: true }), /только валидатор/);
+  await fails(call('tka', 'set_unused_many', { p_terms: ids, p_lang: 'KA', p_unused: true }), /валидатор грузинского/);
   const r = await call('ven', 'set_unused_many', { p_terms: ids, p_lang: 'EN', p_unused: true });
   assert.equal(r.changed, ids.length);
   assert.equal((await call('reader', 'glossary_page', { p_q: 'Двойник' })).items[0].cells.EN.s, 'unused');
@@ -675,4 +675,16 @@ test('счётчики «Без перевода» по всем языкам �
     assert.ok(d.some((c: any) => c.key === 'need-AM'), `${who}: есть сокращённый AM`);
     assert.ok(d.some((c: any) => c.key === 'need-EN'), `${who}: есть EN`);
   }
+});
+
+test('«Не актуально» у языка без валидатора — менеджер и владелец', async () => {
+  const id = (await gl('Данные')).items.find((x: any) => x.ru === 'Данные').id;
+  await fails(call('man', 'set_unused_many', { p_terms: [id], p_lang: 'KA', p_unused: true }), /валидатор грузинского/);
+  const r = await call('man', 'set_unused_many', { p_terms: [id], p_lang: 'SW', p_unused: true });
+  assert.equal(r.changed, 1);
+  const c = await call('owner', 'term_card', { p_id: id });
+  assert.equal(lang(c, 'SW').can.unused, true, 'владельцу доступна кнопка у SW');
+  assert.equal(lang(c, 'KA').can.unused, false, 'у KA есть валидатор — только он');
+  await call('owner', 'set_unused', { p_term: id, p_lang: 'SW', p_unused: false });
+  await fails(call('tka', 'set_unused', { p_term: id, p_lang: 'SW', p_unused: true }), /менеджер или владелец/);
 });

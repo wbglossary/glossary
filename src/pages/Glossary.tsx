@@ -26,6 +26,9 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const bulk = can.editRu(me);
   const [sel, setSel] = useState<number[]>([]);
   const [bulkProjects, setBulkProjects] = useState<number[]>([]);
+  // «Не актуально»: свои языки валидатора; у менеджера и владельца — языки без валидатора
+  const unusedLangs = active.filter((l) => can.validatorOf(me, l.code) || ((me.role === 'manager' || me.role === 'owner') && !l.has_validator));
+  const [unusedLang, setUnusedLang] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const shown = (me.prefs.langs?.length ? me.prefs.langs : active.map((l) => l.code)).filter((c) => active.some((l) => l.code === c));
@@ -57,6 +60,17 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
     } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setDl(false); }
   };
   const toggle = (list: string[], key: string, on: boolean) => (on ? [...list, key] : list.filter((x) => x !== key));
+  const runUnused = async (unused: boolean) => {
+    if (!unusedLang) return;
+    if (unused && !window.confirm(`Отметить ${sel.length} терм. «Не актуально» для ${unusedLang}? Ячейки станут белыми, в выгрузке — пустыми.`)) return;
+    setBulkBusy(true); setBulkMsg(null);
+    try {
+      const r = await rpc<{ changed: number; archived: number }>('set_unused_many', { p_terms: sel, p_lang: unusedLang, p_unused: unused });
+      setBulkMsg({ kind: 'ok', text: (unused ? `«Не актуально» для ${unusedLang}: ${r.changed}.` : `Возвращено в работу (${unusedLang}): ${r.changed}.`)
+        + (r.changed < sel.length ? ' Остальные уже были в таком состоянии.' : '') + (r.archived ? ` Ушло в архив (не актуально ни для одного языка): ${r.archived}.` : '') });
+      setSel([]); reload();
+    } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setBulkBusy(false); }
+  };
   const runBulk = async (add: boolean) => {
     if (!bulkProjects.length) { setBulkMsg({ kind: 'error', text: 'Отметьте хотя бы один проект.' }); return; }
     setBulkBusy(true); setBulkMsg(null);
@@ -138,6 +152,16 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
           ))}</div>
           <Button kind="primary" disabled={bulkBusy || !bulkProjects.length} onClick={() => runBulk(true)}>Добавить в проекты</Button>
           <Button disabled={bulkBusy || !bulkProjects.length} onClick={() => runBulk(false)}>Убрать из проектов</Button>
+          {unusedLangs.length ? (
+            <span className="row gap bulk-unused">
+              <select value={unusedLang} onChange={(e) => setUnusedLang(e.target.value)} aria-label="Язык">
+                <option value="">— язык —</option>
+                {unusedLangs.map((l) => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
+              </select>
+              <Button disabled={bulkBusy || !unusedLang} onClick={() => runUnused(true)}>Не актуально для языка</Button>
+              <Button kind="link" disabled={bulkBusy || !unusedLang} onClick={() => runUnused(false)}>Вернуть</Button>
+            </span>
+          ) : null}
           <Button kind="link" onClick={() => setSel([])}>Снять отметки</Button>
         </div>
       ) : null}
