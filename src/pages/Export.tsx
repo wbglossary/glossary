@@ -72,7 +72,7 @@ export function ExportPage({ me }: PageProps) {
           ))}</div>
           <span className="muted small">Сокращённые глоссарии подрядчиков ({me.languages.filter((l) => l.kind === 'short').map((l) => l.code).join(', ') || '—'}) в Smartcat не выгружаются.</span>
         </div>
-        <p>Терминов будет выгружено: <b>{count.data ?? '…'}</b>. Попадают только согласованные переводы; «Не актуально для языка» — пустая ячейка.</p>
+        <p>Терминов будет выгружено: <b>{count.data ?? '…'}</b>. Попадают согласованные переводы, а у языков без валидатора (например, TR, SW) — и «Без проверки». «Не актуально для языка» — пустая ячейка.</p>
         {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
         <div className="actions">
           <Button kind="primary" disabled={!!busy} onClick={() => run('xlsx')}>{busy === 'xlsx' ? 'Готовлю…' : 'Скачать для Smartcat (.xlsx)'}</Button>

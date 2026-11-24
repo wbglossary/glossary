@@ -653,3 +653,11 @@ test('загрузка: термин из заявки и одинаковые �
   assert.equal(g.rows[0].match, 'ok');
   assert.equal(g.rows[0].ru, 'данные');
 });
+
+test('выгрузка: у языка без валидатора идёт и «Без проверки»', async () => {
+  await sql(`update languages set kind = 'full' where code = 'SW'`);
+  const d = await call('man', 'export_data', { p_langs: ['SW'] });
+  assert.ok(d.terms.some((t: any) => t.tr.SW?.length), 'SW «Без проверки» попадает в Smartcat');
+  const k = await call('man', 'export_data', { p_langs: ['KA'] });
+  assert.ok(!k.terms.some((t: any) => (t.tr.KA ?? []).includes('ალგორითმები')), 'черновик KA — не попадает');
+});

@@ -1537,7 +1537,10 @@ begin
         'comment', t.comment, 'created_at', t.created_at, 'updated_at', t.updated_at,
         'tr', coalesce((select jsonb_object_agg(z.lang, z.list) from (select x.lang, jsonb_agg(x.text order by x.sort, x.id) list
                  from translations x left join term_langs tl on tl.term_id = x.term_id and tl.lang = x.lang
-                where x.term_id = t.id and x.status = 'approved' and x.lang = any(v_langs) and not coalesce(tl.unused, false) group by x.lang) z), '{}'),
+                where x.term_id = t.id and x.lang = any(v_langs) and not coalesce(tl.unused, false)
+                  -- согласованные; у языков без валидатора проверять некому — берём и «Без проверки»
+                  and (x.status = 'approved' or (x.status = 'unchecked' and not lang_has_validator(x.lang)))
+                group by x.lang) z), '{}'),
         'fields', coalesce((select jsonb_object_agg(tl.lang, jsonb_build_object('comment', tl.comment, 'forbidden', tl.forbidden))
                  from term_langs tl where tl.term_id = t.id and tl.lang = any(v_langs) and not tl.unused), '{}'))
         order by lower(t.ru), t.tb)
