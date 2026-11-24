@@ -8,9 +8,11 @@ import { LangCellView } from '../ui/LangCellView';
 import { Icon } from '../ui/Icon';
 import { PushCard } from '../push';
 
-export function HomePage({ me }: PageProps) {
+export function HomePage({ me, reloadMe }: PageProps) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<number | null>(null);
+  const hideDash = !!me.prefs.hide_dash;
+  const toggleDash = async () => { await rpc('set_prefs', { p_prefs: { ...me.prefs, hide_dash: !hideDash } }); await reloadMe(); };
   const dash = useAsync(() => rpc<DashCard[]>('dashboard'), []);
   const recent = useAsync(() => rpc<(GlossaryItem & { created_at: string })[]>('recent_terms', { p_limit: 10 }), []);
   const found = useAsync(() => (q.trim() ? rpc<Page<GlossaryItem>>('glossary_page', { p_q: q, p_size: 50 }) : Promise.resolve(null)), [q]);
@@ -21,6 +23,7 @@ export function HomePage({ me }: PageProps) {
   const kind = (c: string) => me.languages.find((l) => l.code === c)?.kind ?? 'full';
   const cards = dash.data ?? [];
   const allDone = cards.length > 0 && cards.every((c) => c.count === 0);
+  const needByLang = me.role === 'manager' || me.role === 'owner' ? cards.filter((c) => c.key.startsWith('need-')) : [];
 
   return (
     <div>
@@ -43,15 +46,31 @@ export function HomePage({ me }: PageProps) {
         <>
           {cards.length ? (
             <>
-              <h2>Вас ждут</h2>
-              {allDone ? <div className="done"><Icon name="check" /> Всё сделано</div> : null}
-              <div className="dash">
-                {cards.map((c) => (
-                  <a key={c.key} href={`#/${c.link}`} className={c.count === 0 ? 'zero' : ''}>
-                    <b>{c.count.toLocaleString('ru-RU')}</b><span>{c.label}</span>
-                  </a>
-                ))}
+              <div className="dash-head">
+                <h2>Вас ждут</h2>
+                <Button small kind="link" onClick={toggleDash}>{hideDash ? `Показать (${cards.filter((c) => c.count > 0).length})` : 'Свернуть'}</Button>
               </div>
+              {hideDash ? null : <>
+                {allDone ? <div className="done"><Icon name="check" /> Всё сделано</div> : null}
+                {/* «Без перевода» по языкам у менеджера и владельца — одной карточкой с языками, а не по карточке на язык */}
+                {needByLang.length > 1 ? (
+                  <div className="dash-langs">
+                    <span className="muted small">Без перевода:</span>
+                    {needByLang.map((c) => (
+                      <a key={c.key} href={`#/${c.link}`} className={c.count === 0 ? 'zero' : ''} title={c.label}>
+                        <b>{c.key.slice(5)}</b> {c.count.toLocaleString('ru-RU')}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="dash">
+                  {(needByLang.length > 1 ? cards.filter((c) => !needByLang.includes(c)) : cards).map((c) => (
+                    <a key={c.key} href={`#/${c.link}`} className={c.count === 0 ? 'zero' : ''}>
+                      <b>{c.count.toLocaleString('ru-RU')}</b><span>{c.label}</span>
+                    </a>
+                  ))}
+                </div>
+              </>}
             </>
           ) : null}
           {me.role !== 'reader' && me.role !== 'contractor' ? <PushCard /> : null}

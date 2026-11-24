@@ -471,3 +471,10 @@ td.c-unused { color: var(--muted); }
 .grid tr.row-fail td { background: var(--need-cell); }
 .grid tr.row-fail-why td { background: var(--need-cell); color: var(--need-fg); font-size: 13px; padding-top: 0; border-top: none; }
 .grid tr.row-fail-why td div { margin-top: 4px; }
+.dash-head { display: flex; align-items: baseline; gap: 12px; }
+.dash-head h2 { margin-bottom: 12px; }
+.dash-langs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 14px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.dash-langs a { text-decoration: none; color: var(--text); padding: 3px 10px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); font-size: 13px; font-variant-numeric: tabular-nums; }
+.dash-langs a b { color: var(--accent); font-weight: 650; margin-right: 2px; }
+.dash-langs a:hover { border-color: var(--line-hover); }
+.dash-langs a.zero { opacity: .55; }
