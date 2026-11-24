@@ -468,3 +468,6 @@ td.c-unused { color: var(--muted); }
 .btn.link.tb-link { font-family: var(--mono); font-size: 13px; padding: 0; min-height: 0; text-decoration: underline; text-underline-offset: 3px; }
 .pager-size { margin: 0 0 0 8px; }
 .push-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.grid tr.row-fail td { background: var(--need-cell); }
+.grid tr.row-fail-why td { background: var(--need-cell); color: var(--need-fg); font-size: 13px; padding-top: 0; border-top: none; }
+.grid tr.row-fail-why td div { margin-top: 4px; }

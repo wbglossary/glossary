@@ -630,3 +630,26 @@ test('журнал — менеджерам и переводчикам; все 
   const all = await call('man', 'all_requests', { p_status: 'all' });
   assert.ok(all.some((x: any) => !x.mine), 'видно чужие заявки');
 });
+
+test('загрузка: термин из заявки и одинаковые термины по заглавным буквам', async () => {
+  // заявка менеджера с переводом KA (у KA есть валидатор) ждёт проверки
+  await call('man', 'import_translations', { p_rows: [{ ru: 'Алгоритмы', definition: 'тест', tr: { KA: 'ალგორითმები' } }], p_apply: true });
+  const z = await req(`ru = 'Алгоритмы' and status = 'pending'`);
+  // язык без валидатора (SW) — термин создаётся сразу, заявка забирается в него
+  const r = await call('man', 'import_translations', { p_rows: [{ ru: 'Алгоритмы', tr: { SW: 'Algorithms SW' } }], p_apply: true });
+  assert.equal(r.rows[0].match, 'from_request');
+  const c = await card(r.rows[0].tb);
+  assert.equal(lang(c, 'SW').status, 'unchecked');
+  assert.equal(lang(c, 'KA').status, 'draft', 'перевод из заявки — черновик валидатору KA');
+  assert.equal((await req(`id = ${z.id}`)).status, 'auto_removed');
+  // язык с валидатором — перевод дописывается в заявку
+  await call('man', 'import_translations', { p_rows: [{ ru: 'Новая витрина', definition: 'тест', tr: { KA: 'ვიტრინა' } }], p_apply: true });
+  const r2 = await call('man', 'import_translations', { p_rows: [{ ru: 'Новая витрина', tr: { HY: 'Ցուցափեղկ' } }], p_apply: true });
+  assert.equal(r2.rows[0].match, 'in_request');
+  const z2 = await req(`ru = 'Новая витрина'`);
+  assert.equal((await sql(`select 1 from request_translations where request_id = ${z2.id} and lang = 'HY'`)).length, 1);
+  // «Данные» и «данные» — выбирается по заглавным буквам
+  const g = await call('man', 'import_translations', { p_rows: [{ ru: 'данные', tr: { SW: 'data' } }] });
+  assert.equal(g.rows[0].match, 'ok');
+  assert.equal(g.rows[0].ru, 'данные');
+});

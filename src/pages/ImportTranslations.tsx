@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { rpc, type Language } from '../api';
 import type { PageProps } from '../router';
 import { Button, Message } from '../ui/kit';
@@ -9,10 +9,10 @@ import { readXlsxRaw } from '../xlsxRaw';
  * Столбцы и языки определяются по названиям столбцов; термин ищется по русскому и определению.
  */
 
-type LangSt = 'add' | 'same' | 'differs' | 'skip' | 'no_lang' | 'new';
+type LangSt = 'add' | 'same' | 'differs' | 'skip' | 'no_lang' | 'new' | 'to_request';
 interface LangRes { text: string; current: string | null; status: LangSt; as: 'draft' | 'unchecked' | 'request' }
 interface Row {
-  row: number; match: 'ok' | 'new' | 'direct' | 'in_request' | 'dup_in_file' | 'ambiguous' | 'not_found' | 'no_translations';
+  row: number; match: 'ok' | 'new' | 'direct' | 'in_request' | 'from_request' | 'dup_in_file' | 'ambiguous' | 'not_found' | 'no_translations';
   tb: string | null; ru: string; definition: string | null; request: string | null;
   candidates: { tb: string; definition: string }[] | null; langs: Record<string, LangRes>;
 }
@@ -61,20 +61,41 @@ const MATCH: Record<Row['match'], { label: string; total: string; cls: string }>
   ok: { label: 'уже есть в глоссарии', total: 'Уже есть в глоссарии', cls: 'st-approved' },
   new: { label: 'новый — уйдёт валидаторам на проверку', total: 'Новых — на проверку', cls: 'st-unchecked' },
   direct: { label: 'новый — сразу, «Без проверки» (у языков нет валидатора)', total: 'Новых — сразу без проверки', cls: 'st-unchecked' },
-  in_request: { label: 'уже ждёт проверки в заявке — пропустим', total: 'Уже в заявках', cls: 'st-unused' },
-  dup_in_file: { label: 'повтор в файле — пропустим', total: 'Повторы в файле', cls: 'st-unused' },
-  ambiguous: { label: 'несколько таких терминов — нужно определение', total: 'Нужно определение', cls: 'st-draft' },
-  not_found: { label: 'нет русского термина', total: 'Без русского термина', cls: 'st-need' },
-  no_translations: { label: 'нет переводов — пропустим', total: 'Без переводов', cls: 'st-unused' }
+  in_request: { label: 'ждёт проверки в заявке — допишем перевод в заявку, утвердит валидатор', total: 'Ждут в заявках (допишем перевод)', cls: 'st-unchecked' },
+  from_request: { label: 'ждал в заявке — создадим термин сразу (перевод уже принят подрядчиком), заявку заберём в него', total: 'Создадим из заявок', cls: 'st-unchecked' },
+  dup_in_file: { label: 'повтор в файле — пропустим', total: 'Не загрузится: повтор в файле', cls: 'st-need' },
+  ambiguous: { label: 'несколько одинаковых терминов — не понятно, какой', total: 'Не загрузится: одинаковые термины', cls: 'st-need' },
+  not_found: { label: 'нет русского термина', total: 'Не загрузится: нет русского термина', cls: 'st-need' },
+  no_translations: { label: 'нет переводов — пропустим', total: 'Не загрузится: нет переводов', cls: 'st-need' }
 };
 const LST: Record<LangSt, { label: string; cls: string }> = {
   add: { label: 'добавим', cls: 'st-approved' },
   new: { label: 'в новый термин', cls: 'st-unchecked' },
+  to_request: { label: 'допишем в заявку', cls: 'st-unchecked' },
   same: { label: 'уже есть', cls: 'st-unused' },
-  differs: { label: 'уже есть другой — пропустим', cls: 'st-draft' },
+  differs: { label: 'уже есть другой — не загрузим', cls: 'st-need' },
   skip: { label: 'пропустим', cls: 'st-unused' },
   no_lang: { label: 'такого языка нет', cls: 'st-need' }
 };
+
+/** Почему строка (или перевод) не загрузились — простыми словами. null — всё в порядке. */
+function whyNot(r: Row): string[] {
+  const out: string[] = [];
+  if (r.match === 'ambiguous') {
+    out.push(`В глоссарии несколько терминов «${r.ru}» с одинаковым написанием, даже с учётом заглавных букв: `
+      + (r.candidates ?? []).map((c) => `${c.tb} (${c.definition || 'без определения'})`).join('; ')
+      + '. В файле нет определения, по которому можно понять, к какому из них относится перевод, поэтому сайт его не загрузил. '
+      + 'Что сделать: откройте нужный термин в «Глоссарии» и впишите перевод вручную. Или добавьте в файл столбец «Определение» и загрузите эту строку ещё раз.');
+  }
+  if (r.match === 'not_found') out.push('В строке нет русского термина — сайту не к чему привязать перевод. Впишите русский термин в файл и загрузите строку ещё раз.');
+  if (r.match === 'no_translations') out.push('В строке нет ни одного перевода — загружать нечего.');
+  if (r.match === 'dup_in_file') out.push('Этот русский термин уже был выше в этом же файле — загружена первая строка, эта пропущена. Если перевод здесь другой и он правильный, впишите его вручную в карточке термина.');
+  for (const [c, l] of Object.entries(r.langs)) {
+    if (l.status === 'differs') out.push(`${c}: у термина уже есть перевод «${l.current}», а в файле — «${l.text}». Сайт не заменяет готовые переводы. Если правильный — из файла, откройте термин и нажмите «Заменить».`);
+    if (l.status === 'no_lang') out.push(`${c}: такого языка нет в глоссарии или он выключен — перевод не загружен.`);
+  }
+  return out;
+}
 
 export function ImportTranslationsPage({ me }: PageProps) {
   const langs = me.languages.filter((l) => l.active);
@@ -84,6 +105,8 @@ export function ImportTranslationsPage({ me }: PageProps) {
   const [fileName, setFileName] = useState('');
   const [check, setCheck] = useState<Row[] | null>(null);
   const [projects, setProjects] = useState<number[]>([]);
+  const [done, setDone] = useState(false);
+  const [onlyFailed, setOnlyFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error' | 'warn'; text: string } | null>(null);
   const sheet = sheets[sheetIx];
@@ -144,18 +167,21 @@ export function ImportTranslationsPage({ me }: PageProps) {
     try {
       const r = await rpc<{ rows: Row[]; added: number; requests: string[] }>('import_translations', { p_rows: payload(), p_apply: apply, p_projects: projects.length ? projects : null });
       if (apply) {
-        setMsg({ kind: 'ok', text: `Готово. Добавлено переводов: ${r.added}.`
-          + (r.requests.length ? ` Новых терминов на проверку валидаторам: ${r.requests.length} (${r.requests.slice(0, 5).join(', ')}${r.requests.length > 5 ? '…' : ''}) — они в «Моих заявках».` : '') });
-        setCheck(null); setSheets([]); setFileName('');
-      } else setCheck(r.rows);
+        const failed = r.rows.filter((x) => whyNot(x).length).length;
+        setMsg({ kind: failed ? 'warn' : 'ok', text: `Готово. Загружено переводов: ${r.added}.`
+          + (r.requests.length ? ` Новых терминов на проверку валидаторам: ${r.requests.length} (${r.requests.slice(0, 5).join(', ')}${r.requests.length > 5 ? '…' : ''}) — они в «Заявках».` : '')
+          + (failed ? ` Не загрузилось строк: ${failed} — они ниже, выделены красным, под каждой написано почему.` : ' Всё загрузилось.') });
+        setCheck(r.rows); setDone(true); setOnlyFailed(failed > 0); setSheets([]); setFileName('');
+      } else { setCheck(r.rows); setDone(false); setOnlyFailed(false); }
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }); } finally { setBusy(false); }
   };
 
-  const toAdd = check ? check.reduce((n, r) => n + Object.values(r.langs).filter((l) => l.status === 'add').length, 0) : 0;
-  const toNew = check ? check.filter((r) => r.match === 'new' || r.match === 'direct').length : 0;
+  const toAdd = check ? check.reduce((n, r) => n + Object.values(r.langs).filter((l) => l.status === 'add' || l.status === 'to_request').length, 0) : 0;
+  const toNew = check ? check.filter((r) => r.match === 'new' || r.match === 'direct' || r.match === 'from_request').length : 0;
+  const failedRows = check ? check.filter((r) => whyNot(r).length).length : 0;
   const byMatch = check ? (Object.keys(MATCH) as Row['match'][]).map((k) => [k, check.filter((r) => r.match === k).length] as const) : [];
   const perLang = check ? Object.entries(check.reduce<Record<string, { add: number; as: string }>>((acc, r) => {
-    Object.entries(r.langs).forEach(([c, l]) => { acc[c] ??= { add: 0, as: l.as }; if (l.status === 'add' || l.status === 'new') acc[c].add++; });
+    Object.entries(r.langs).forEach(([c, l]) => { acc[c] ??= { add: 0, as: l.as }; if (l.status === 'add' || l.status === 'new' || l.status === 'to_request') acc[c].add++; });
     return acc;
   }, {})) : [];
 
@@ -214,23 +240,24 @@ export function ImportTranslationsPage({ me }: PageProps) {
 
       {check ? (
         <>
-          <h2>Что получилось</h2>
+          <h2>{done ? 'Результат загрузки' : 'Что получится'}</h2>
           <div className="row gap wrap">
             {byMatch.filter(([, n]) => n).map(([k, n]) => <span key={k} className={`badge ${MATCH[k].cls}`}>{MATCH[k].total}: {n}</span>)}
           </div>
           <div className="row gap wrap" style={{ marginTop: 8 }}>
             {perLang.map(([c, x]) => <span key={c} className="badge">{c}: новых переводов {x.add}</span>)}
           </div>
-          <div className="actions">
+          <label className="small" style={{ display: 'block', marginTop: 10 }}><input type="checkbox" checked={onlyFailed} onChange={(e) => setOnlyFailed(e.target.checked)} /> Показать только то, что не {done ? 'загрузилось' : 'загрузится'} ({failedRows})</label>
+          {done ? null : <div className="actions">
             <Button kind="primary" disabled={busy || !(toAdd + toNew)} why={!(toAdd + toNew) ? 'Нечего добавлять — всё уже есть' : undefined} onClick={() => run(true)}>
               Загрузить{toNew ? ` ${toNew} нов. терм.` : ''}{toNew && toAdd ? ' и' : ''}{toAdd ? ` ${toAdd} перев.` : ''}</Button>
             <Button kind="link" onClick={() => setCheck(null)}>Отмена</Button>
-          </div>
+          </div>}
           <div className="table-wrap">
             <table className="grid">
               <thead><tr><th>Строка</th><th>Термин</th><th>Совпадение</th><th>Переводы</th></tr></thead>
-              <tbody>{check.map((r) => (
-                <tr key={r.row}>
+              <tbody>{check.filter((r) => !onlyFailed || whyNot(r).length).map((r) => { const why = whyNot(r); return (<Fragment key={r.row}>
+                <tr className={why.length ? 'row-fail' : ''}>
                   <td className="muted">{r.row + 1}</td>
                   <td>
                     {r.tb ? <><span className="tb">{r.tb}</span>{' '}</> : null}<b>{r.ru}</b>
@@ -246,7 +273,8 @@ export function ImportTranslationsPage({ me }: PageProps) {
                       {l.status === 'differs' && l.current ? <span className="muted"> сейчас: {l.current}</span> : null}</div>
                   ))}</td>
                 </tr>
-              ))}</tbody>
+                {why.length ? <tr className="row-fail-why"><td /><td colSpan={3}><b>Почему не {done ? 'загрузилось' : 'загрузится'}:</b>{why.map((w, i) => <div key={i}>{w}</div>)}</td></tr> : null}
+              </Fragment>); })}</tbody>
             </table>
           </div>
         </>

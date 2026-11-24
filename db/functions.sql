@@ -1848,7 +1848,7 @@ language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); e jsonb; i int := 0; v_tb text; v_ru text; v_def text; v_term int; v_ids int[];
   v_match text; v_lang text; v_text text; v_cur text; v_st text; v_lst jsonb; outv jsonb := '[]'; v_add int := 0;
   v text; k int; v_status text; t terms; v_cands jsonb; v_key text; v_seen text[] := '{}'; v_req text; v_new jsonb;
-  v_code text; v_rid int; v_reqs jsonb := '[]'; v_warn text[]; v_proj int[] := '{}';
+  v_code text; v_rid int; v_reqs jsonb := '[]'; v_warn text[]; v_proj int[] := '{}'; v_rq requests;
 begin
   if u.role not in ('manager','owner') then perform app_error('Загружать переводы могут менеджер и владелец.'); end if;
   if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then perform app_error('В таблице нет строк.'); end if;
@@ -1866,7 +1866,11 @@ begin
       v_ids := array(select id from terms where ru_norm = v_key and status = 'active' order by tb);
       if cardinality(v_ids) = 1 then v_term := v_ids[1];
       elsif cardinality(v_ids) > 1 then
-        if v_def <> '' then v_term := pick_by_definition(v_ids, v_def); end if;
+        -- «Данные» и «данные»: сначала точное совпадение с заглавными буквами, потом — по определению
+        if (select count(*) from terms where id = any(v_ids) and ru_case_key(ru) = ru_case_key(v_ru)) = 1 then
+          select id into v_term from terms where id = any(v_ids) and ru_case_key(ru) = ru_case_key(v_ru);
+        end if;
+        if v_term is null and v_def <> '' then v_term := pick_by_definition(v_ids, v_def); end if;
         if v_term is null then
           select jsonb_agg(jsonb_build_object('tb', tb, 'definition', definition) order by tb) into v_cands from terms where id = any(v_ids);
         end if;
@@ -1888,6 +1892,11 @@ begin
       v_status := case when lang_has_validator(v_lang) and coalesce((select kind from languages where code = v_lang), 'full') = 'full' then 'draft' else 'unchecked' end;
       if not exists (select 1 from languages l where l.code = v_lang and l.active) then v_st := 'no_lang';
       elsif v_match = 'new' then v_st := 'new'; v_new := v_new || jsonb_build_object(v_lang, v_text);
+      elsif v_match = 'in_request' then
+        -- термин ждёт в заявке: решаем после цикла — создать термин из заявки или дописать перевод в неё
+        select rt.text into v_cur from request_translations rt join requests q on q.id = rt.request_id where q.code = v_req and rt.lang = v_lang;
+        v_st := case when v_cur is null then 'to_request' when norm_term(v_cur) = norm_term(v_text) then 'same' else 'differs' end;
+        if v_st = 'to_request' then v_new := v_new || jsonb_build_object(v_lang, v_text); end if;
       elsif v_term is null then v_st := 'skip';
       else
         select string_agg(x.text, '; ' order by x.sort, x.id) into v_cur from translations x
@@ -1912,6 +1921,52 @@ begin
       v_cur := null;
     end loop;
     if v_match = 'new' and v_new = '{}'::jsonb then v_match := 'no_translations'; end if;
+    -- Термин ждёт в заявке. Если ни у одного языка из файла нет валидатора (перевод уже принят подрядчиком) —
+    -- создаём термин сразу и забираем в него заявку: её переводы становятся черновиками для своих валидаторов,
+    -- остальные языки — «Нужен перевод». Иначе — дописываем перевод в заявку, его утвердит валидатор.
+    if v_match = 'in_request' and v_new <> '{}'::jsonb then
+      select * into v_rq from requests where code = v_req;
+      if not exists (select 1 from jsonb_object_keys(v_new) key where lang_has_validator(key)) then
+        v_match := 'from_request';
+        v_lst := (select jsonb_object_agg(key, case when value->>'status' = 'to_request' then value || '{"status": "add", "as": "unchecked"}'::jsonb else value end)
+                  from jsonb_each(v_lst));
+        if p_apply then
+          insert into terms(tb, ru, definition, examples, comment, created_by, updated_by)
+          values ('TB-' || lpad(nextval('tb_seq')::text, 5, '0'), v_rq.ru, coalesce(nullif(v_rq.definition, ''), v_def), v_rq.examples, v_rq.comment, u.id, u.id)
+          returning * into t;
+          insert into term_projects select t.id, p.id from projects p where p.id = any(v_rq.project_ids || v_proj) on conflict do nothing;
+          for v_lang, v_text in select key, value from jsonb_each_text(v_new) loop
+            k := 1;
+            foreach v in array split_variants(v_text) loop perform add_translation(t.id, v_lang, v, 'unchecked', u.id, k); k := k + 1; end loop;
+            v_add := v_add + 1;
+          end loop;
+          for v_lang, v_text, v_rid in select rt.lang, rt.text, rt.author_id from request_translations rt where rt.request_id = v_rq.id loop
+            if exists (select 1 from translations x where x.term_id = t.id and x.lang = v_lang) then continue; end if;
+            k := 1;
+            foreach v in array split_variants(v_text) loop
+              perform add_translation(t.id, v_lang, v, case when lang_has_validator(v_lang) then 'draft' else 'unchecked' end, v_rid, k); k := k + 1;
+            end loop;
+          end loop;
+          update requests set status = 'auto_removed', term_id = t.id, decided_by = u.id, decided_at = now(), version = version + 1,
+            reason = 'Термин ' || t.tb || ' создан при загрузке таблицы: перевод ' || (select string_agg(key, ', ') from jsonb_object_keys(v_new) key)
+                     || ' уже принят подрядчиком. Переводы из заявки — черновики для валидаторов своих языков.'
+           where id = v_rq.id;
+          perform log_event(u, 'Термин из таблицы', t.tb, v_rq.code, null, null, t.ru, 'Создан из заявки ' || v_rq.code || ' при загрузке таблицы');
+          v_term := t.id;
+        end if;
+      else
+        if p_apply then
+          for v_lang, v_text in select key, value from jsonb_each_text(v_new) loop
+            insert into request_translations(request_id, lang, text, author_id) values (v_rq.id, v_lang, v_text, u.id) on conflict do nothing;
+            update requests set version = version + 1,
+              target_langs = case when target_langs is null or v_lang = any(target_langs) then target_langs else target_langs || v_lang end
+             where id = v_rq.id;
+            perform log_event(u, 'Вписан перевод в заявку', null, v_req, v_lang, null, v_text, 'Из загруженной таблицы');
+            v_add := v_add + 1;
+          end loop;
+        end if;
+      end if;
+    end if;
     -- новый термин → заявка на валидацию: её увидят валидаторы языков из файла
     if v_match = 'new' then
       v_seen := v_seen || v_key;
