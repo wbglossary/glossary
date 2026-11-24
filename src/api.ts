@@ -40,7 +40,7 @@ export interface Project { id: number; name: string; closed: boolean }
 export interface Me {
   id: number; email: string; name: string; role: Role; lang: string | null; avatar: string; contractor_no: number | null;
   langs: { code: string; role: 'translator' | 'validator' }[];   // языки человека и роль на каждом
-  prefs: { langs?: string[]; cols?: string[]; work_cols?: string[] }; is_en_validator: boolean; languages: Language[]; projects: Project[];
+  prefs: { langs?: string[]; cols?: string[]; work_cols?: string[]; hide_unused?: boolean }; is_en_validator: boolean; languages: Language[]; projects: Project[];
 }
 
 export const can = {

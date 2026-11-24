@@ -128,3 +128,29 @@ export function download(blob: Blob, name: string) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
+
+export interface ContractorData {
+  languages: { code: string; name: string }[];
+  terms: { tb: string; ru: string; definition: string; examples: string; tr: Record<string, string> }[];
+}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Таблица для подрядчика: пустые ячейки — то, что нужно перевести. Её же потом можно загрузить в «Загрузку терминов». */
+export async function buildContractorXlsx(d: ContractorData): Promise<Blob> {
+  const { default: ExcelJS } = await import('exceljs');
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Перевести');
+  ws.addRow(['Номер', 'Русский термин', 'Определение', 'Примеры', ...d.languages.map((l) => cap(l.name))]);
+  ws.getRow(1).font = { bold: true };
+  ws.views = [{ state: 'frozen', xSplit: 2, ySplit: 1 }];
+  ws.columns.forEach((c, i) => { c.width = i === 0 ? 11 : i === 1 ? 30 : i < 4 ? 40 : 28; });
+  for (const t of d.terms) {
+    const row = ws.addRow([t.tb, t.ru, clean(t.definition), clean(t.examples), ...d.languages.map((l) => t.tr[l.code] ?? '')]);
+    row.alignment = { wrapText: true, vertical: 'top' };
+    d.languages.forEach((l, i) => { if (!t.tr[l.code]) row.getCell(5 + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7D6' } }; });
+  }
+  const help = wb.addWorksheet('Как заполнить');
+  [['Впишите перевод в жёлтые ячейки.'], ['Несколько вариантов — через точку с запятой.'], ['Столбцы и их названия не меняйте — файл загрузится обратно на сайт.']].forEach((r) => help.addRow(r));
+  help.getColumn(1).width = 70;
+  return new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_TYPE });
+}

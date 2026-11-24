@@ -586,3 +586,33 @@ test('загрузка таблицы: новые термины уходят з
   assert.equal(d.rows[0].match, 'direct');
   assert.equal((await gl('Только суахили')).items[0].cells.SW.s, 'unchecked');
 });
+
+test('«Данные» и «данные» — не одинаковые термины', async () => {
+  for (const ru of ['Данные', 'данные']) {
+    await submit('vka', { type: 'new', ru, lang: 'KA', translation: 'მონაცემები ' + ru, definition: ru, new_meaning: true });
+    const z = await req(`ru = '${ru}' and status = 'pending'`);
+    await approve('vka', z.id, z.version, true);
+  }
+  const g = await call('ven', 'glossary_page', { p_dupes: true, p_q: 'данные' });
+  assert.equal(g.total, 0, 'разный регистр — не дубль');
+});
+
+test('скрыть «не актуально» для своего языка', async () => {
+  const id = (await gl('Данные')).items.find((x: any) => x.ru === 'Данные').id;
+  await call('ven', 'set_unused_many', { p_terms: [id], p_lang: 'EN', p_unused: true });
+  const all = await call('ven', 'glossary_page', { p_q: 'Данные', p_size: 5000 });
+  const hid = await call('ven', 'glossary_page', { p_q: 'Данные', p_size: 5000, p_hide_unused: ['EN'] });
+  assert.ok(all.items.some((x: any) => x.id === id) && !hid.items.some((x: any) => x.id === id));
+  const w1 = await call('ven', 'work_page', { p_lang: 'EN', p_q: 'Данные' });
+  const w2 = await call('ven', 'work_page', { p_lang: 'EN', p_q: 'Данные', p_hide_unused: true });
+  assert.ok(w1.items.some((x: any) => x.id === id) && !w2.items.some((x: any) => x.id === id));
+  await call('ven', 'set_unused_many', { p_terms: [id], p_lang: 'EN', p_unused: false });
+});
+
+test('выгрузка для подрядчика: только термины без перевода на выбранном языке', async () => {
+  await fails(call('tka', 'export_contractor', { p_langs: ['AM'] }), /менеджер и владелец/);
+  const d = await call('man', 'export_contractor', { p_langs: ['AM'] });
+  assert.ok(d.terms.length > 0);
+  assert.ok(d.terms.every((t: any) => !t.tr.AM), 'у всех нет перевода на AM');
+  assert.ok(!d.terms.some((t: any) => t.tb === 'TB-00001'), 'TB-00001 уже переведён на AM');
+});

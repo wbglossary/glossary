@@ -3,7 +3,7 @@ import { can, fmtDate, langGen, rpc, type LangStatus, type Me, type RequestItem,
 import { go, type PageProps } from '../router';
 import { AuthorChip, CopyButton } from '../ui/bits';
 import { ChangeModal, type ChangeMode } from '../ui/ChangeModal';
-import { Button, Confirm, Empty, Message, Pager, SearchBox, StatusBadge, useAsync } from '../ui/kit';
+import { Button, Confirm, Empty, Message, Pager, SearchBox, StatusBadge, useAsync, useFillHeight, usePageSize } from '../ui/kit';
 import { RequestDrawer } from '../ui/RequestDrawer';
 import { TermDrawer } from '../ui/TermDrawer';
 import { Icon } from '../ui/Icon';
@@ -41,6 +41,9 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
   const [project, setProject] = useState<number | null>(null);
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
+  const [size, setSize] = usePageSize();
+  const hideUnused = !!me.prefs.hide_unused;
+  const wrap = useFillHeight<HTMLDivElement>();
   const [open, setOpen] = useState<number | null>(null);
   const [sel, setSel] = useState<number[]>([]);
   const [msgs, setMsgs] = useState<{ kind: 'ok' | 'error' | 'warn'; text: string }[]>([]);
@@ -58,8 +61,8 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
 
   useEffect(() => { setSel([]); setPage(1); }, [lang, tab, status, project, q]);
   const data = useAsync(() => (tab === 'requests' ? Promise.resolve(null)
-    : rpc<WorkPageData>('work_page', { p_lang: lang, p_tab: tab, p_status: status, p_project: project, p_q: q || null, p_page: page, p_size: 100 })),
-    [lang, tab, status, project, q, page]);
+    : rpc<WorkPageData>('work_page', { p_lang: lang, p_tab: tab, p_status: status, p_project: project, p_q: q || null, p_page: page, p_size: size, p_hide_unused: hideUnused })),
+    [lang, tab, status, project, q, page, size, hideUnused]);
   const reqs = useAsync(() => (isWorker || me.role === 'owner' ? rpc<RequestItem[]>('lang_requests', { p_lang: lang }) : Promise.resolve([])), [lang, tab]);
 
   if (!lang) return <Empty>Рабочая область есть у переводчиков и валидаторов.</Empty>;
@@ -124,6 +127,10 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
               {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <SearchBox value={q} onChange={setQ} />
+            {tab === 'mine' && status === 'all' ? (
+              <label className="small"><input type="checkbox" checked={hideUnused} disabled={savingCols}
+                onChange={async (e) => { setSavingCols(true); try { await rpc('set_prefs', { p_prefs: { ...me.prefs, hide_unused: e.target.checked } }); await reloadMe(); } finally { setSavingCols(false); } }} /> Скрыть «не актуально»</label>
+            ) : null}
             <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
             {d?.can.approve ? <Button kind="primary" disabled={!toApprove.length} why={!toApprove.length ? 'Отметьте строки с черновиком' : undefined}
               onClick={() => approveRows(toApprove)}>Согласовать выбранные ({toApprove.length})</Button> : null}
@@ -149,7 +156,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
             </div>
           ) : null}
           {data.error ? <Message kind="error">{data.error}</Message> : null}
-          <div className="table-wrap">
+          <div className="table-wrap" ref={wrap}>
             <table className={`grid sticky${d?.can.approve ? ' with-check' : ''}`}>
               <thead><tr>
                 {d?.can.approve ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
@@ -195,7 +202,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
             {!data.loading && d && !items.length ? <Empty>{tab === 'review' ? 'Всё пересмотрено.' : tab === 'new' ? 'Новых терминов из других языков нет.' : 'Ничего не найдено.'}</Empty> : null}
             {data.loading ? <div className="empty">Загрузка…</div> : null}
           </div>
-          {d ? <Pager page={d.page} pages={d.pages} total={d.total} onPage={setPage} /> : null}
+          {d ? <Pager page={d.page} pages={d.pages} total={d.total} onPage={setPage} size={size} onSize={(a) => { setSize(a); setPage(1); }} /> : null}
         </>
       )}
       <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={() => data.reload()} />

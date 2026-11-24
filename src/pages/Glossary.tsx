@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { can, rpc, type GlossaryItem, type Page } from '../api';
 import type { PageProps } from '../router';
-import { Button, Empty, Message, Pager, SearchBox, useAsync } from '../ui/kit';
+import { Button, Empty, Message, Pager, SearchBox, useAsync, useFillHeight, usePageSize } from '../ui/kit';
 import { TermDrawer } from '../ui/TermDrawer';
 import { DEFAULT_COLS, FIELD_COLS, TermsTable, type FieldCol } from '../ui/TermsTable';
 
@@ -13,6 +13,10 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const [mode, setMode] = useState<'any' | 'has' | 'missing'>((route.params.get('mode') as 'missing') ?? 'any');
   const dupes = route.params.get('dupes') === '1';
   const [page, setPage] = useState(1);
+  const [size, setSize] = usePageSize();
+  const myLangs = me.langs.map((l) => l.code);
+  const hideUnused = !!me.prefs.hide_unused && myLangs.length > 0;
+  const wrap = useFillHeight<HTMLDivElement>();
   const [open, setOpen] = useState<number | null>(null);
   const [chooser, setChooser] = useState(false);
   // массовая работа с проектами — менеджер, валидатор английского, владелец
@@ -24,12 +28,13 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const shown = (me.prefs.langs?.length ? me.prefs.langs : active.map((l) => l.code)).filter((c) => active.some((l) => l.code === c));
 
   const { data, error, loading, reload } = useAsync(
-    () => rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any', p_page: page, p_size: 100, p_dupes: dupes }),
-    [q, project, lang, mode, page, dupes]
+    () => rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any', p_page: page, p_size: size, p_dupes: dupes,
+      p_hide_unused: hideUnused ? myLangs : null }),
+    [q, project, lang, mode, page, dupes, size, hideUnused]
   );
   const cols = (me.prefs.cols ?? DEFAULT_COLS).filter((c): c is FieldCol => FIELD_COLS.some((f) => f.key === c));
   const [saving, setSaving] = useState(false);
-  const savePrefs = async (patch: { langs?: string[]; cols?: string[] }) => {
+  const savePrefs = async (patch: { langs?: string[]; cols?: string[]; hide_unused?: boolean }) => {
     setSaving(true);
     try { await rpc('set_prefs', { p_prefs: { ...me.prefs, ...patch } }); await reloadMe(); } finally { setSaving(false); }
   };
@@ -70,6 +75,10 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
           </select>
         ) : null}
         <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
+        {myLangs.length ? (
+          <label className="small"><input type="checkbox" checked={hideUnused} disabled={saving}
+            onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально» для {myLangs.join(', ')}</label>
+        ) : null}
         {dupes ? <a href="#/glossary">показать все термины</a> : null}
       </div>
       {chooser ? (
@@ -112,13 +121,13 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
         </div>
       ) : null}
       {error ? <Message kind="error">{error}</Message> : null}
-      <div className="table-wrap">
+      <div className="table-wrap" ref={wrap}>
         {data ? <TermsTable me={me} items={data.items} langs={shown} cols={cols} openId={open} onOpen={setOpen}
           selected={bulk ? sel : undefined} onSelect={bulk ? setSel : undefined} /> : null}
         {!loading && data && !data.items.length ? <Empty>Ничего не найдено.</Empty> : null}
         {loading ? <div className="empty">Загрузка…</div> : null}
       </div>
-      {data ? <Pager page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
+      {data ? <Pager page={data.page} pages={data.pages} total={data.total} onPage={setPage} size={size} onSize={(a) => { setSize(a); setPage(1); }} /> : null}
       <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={reload} />
     </div>
   );

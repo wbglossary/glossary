@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { fmtDate, rpc } from '../api';
-import { buildXml, buildViewXlsx, buildXlsx, download, type ExportData, type ViewData } from '../exportFile';
+import { buildContractorXlsx, buildXml, buildViewXlsx, buildXlsx, download, type ContractorData, type ExportData, type ViewData } from '../exportFile';
 import type { PageProps } from '../router';
 import { Button, Empty, Message, useAsync } from '../ui/kit';
 
@@ -12,6 +12,9 @@ export function ExportPage({ me }: PageProps) {
   const [project, setProject] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  // сначала — сокращённые языки (их переводят подрядчики), потом остальные
+  const contractorLangs = [...me.languages.filter((l) => l.active && l.kind === 'short'), ...me.languages.filter((l) => l.active && l.kind === 'full')];
+  const [cLangs, setCLangs] = useState<string[]>(me.languages.filter((l) => l.active && l.kind === 'short').map((l) => l.code));
   const count = useAsync(() => rpc<number>('export_count', { p_project: project }), [project]);
   const hist = useAsync(() => rpc<Hist[]>('export_history'), []);
 
@@ -40,6 +43,18 @@ export function ExportPage({ me }: PageProps) {
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }); } finally { setBusy(null); }
   };
 
+  const runContractor = async () => {
+    setBusy('contractor'); setMsg(null);
+    try {
+      const d = await rpc<ContractorData>('export_contractor', { p_langs: cLangs, p_project: project });
+      if (!d.terms.length) { setMsg({ kind: 'ok', text: 'На выбранных языках всё уже переведено — выгружать нечего.' }); return; }
+      download(await buildContractorXlsx(d), `${base} — перевести ${cLangs.join(', ')}.xlsx`);
+      await rpc('log_export', { p_langs: cLangs, p_project: project, p_format: 'xlsx (для подрядчика)', p_count: d.terms.length });
+      setMsg({ kind: 'ok', text: `Файл скачан, терминов: ${d.terms.length}.` });
+      hist.reload();
+    } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }); } finally { setBusy(null); }
+  };
+
   return (
     <div className="narrow">
       <h1>Выгрузка</h1>
@@ -64,7 +79,19 @@ export function ExportPage({ me }: PageProps) {
           <Button disabled={!!busy} onClick={() => run('xml')}>{busy === 'xml' ? 'Готовлю…' : 'Скачать XML'}</Button>
           <Button disabled={!!busy} onClick={() => run('view')}>{busy === 'view' ? 'Готовлю…' : 'Таблица для просмотра (.xlsx)'}</Button>
         </div>
-        <p className="muted small">В файле для Smartcat заметки по языкам и «Нельзя: …» попадают в колонку Comments. Таблица для просмотра — все языки со статусами, пустые ячейки красные.</p>
+        <p className="muted small">В файле для Smartcat в колонку Comments попадает русское определение. Таблица для просмотра — все языки со статусами, пустые ячейки красные.</p>
+      </div>
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Для подрядчиков: что перевести</h3>
+        <p className="muted small">Файл с терминами, у которых на выбранных языках ещё нет перевода (проект — как выбран выше). Подрядчик вписывает переводы в жёлтые ячейки, а готовый файл загружается в «Загрузку терминов».</p>
+        <div className="checks">{contractorLangs.map((l) => (
+          <label key={l.code}><input type="checkbox" checked={cLangs.includes(l.code)}
+            onChange={(e) => setCLangs(e.target.checked ? [...cLangs, l.code] : cLangs.filter((x) => x !== l.code))} /> {l.code} — {l.name}{l.kind === 'short' ? ' (сокр.)' : ''}</label>
+        ))}</div>
+        <div className="actions">
+          <Button kind="primary" disabled={!!busy || !cLangs.length} why={!cLangs.length ? 'Отметьте языки' : undefined} onClick={runContractor}>
+            {busy === 'contractor' ? 'Готовлю…' : 'Скачать пустые для подрядчика (.xlsx)'}</Button>
+        </div>
       </div>
       <h3>Последние выгрузки</h3>
       <div className="table-wrap">

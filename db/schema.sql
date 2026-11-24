@@ -272,12 +272,21 @@ create table feedback (
 create index feedback_author on feedback (author_id, created_at desc);
 create index feedback_status on feedback (status, created_at desc);
 
+-- ---------- Напоминания в браузере: подписки (одна на браузер) ----------
+create table push_subs (
+  endpoint   text primary key,
+  profile_id int not null references profiles(id) on delete cascade,
+  p256dh     text not null,
+  auth       text not null,
+  created_at timestamptz not null default now()
+);
+
 -- ---------- Закрываем таблицы от браузерных ключей ----------
 do $$
 declare t text;
 begin
   foreach t in array array['languages','projects','profiles','profile_langs','settings','terms','retired_tb','term_projects','term_langs',
-    'translations','requests','request_translations','request_answers','request_comments','term_comments','audit_log','exports','feedback'] loop
+    'translations','requests','request_translations','request_answers','request_comments','term_comments','audit_log','exports','feedback','push_subs'] loop
     execute format('alter table %I enable row level security', t);
   end loop;
 end $$;

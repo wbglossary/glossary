@@ -87,10 +87,39 @@ export function Drawer({ open, onClose, children, title }: { open: boolean; onCl
   );
 }
 
-export function Pager({ page, pages, total, onPage }: { page: number; pages: number; total: number; onPage: (p: number) => void }) {
+/** Сколько строк показывать: все сразу или по 100. Выбор запоминается в этом браузере. */
+const SIZE_KEY = 'gl_page_size';
+export function usePageSize(): [number, (all: boolean) => void] {
+  const [all, setAll] = useState(() => { try { return localStorage.getItem(SIZE_KEY) !== '100'; } catch { return true; } });
+  return [all ? 5000 : 100, (v: boolean) => { setAll(v); try { localStorage.setItem(SIZE_KEY, v ? 'all' : '100'); } catch { /* приватный режим */ } }];
+}
+
+/** Таблица дотягивается до низа экрана: высоту прокрутки считаем от её места на странице. */
+export function useFillHeight<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const fit = () => {
+    const el = ref.current; if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    el.style.maxHeight = `${Math.max(320, window.innerHeight - top - 64)}px`;
+  };
+  useEffect(fit);   // таблица могла появиться или сдвинуться (фильтры, сообщения)
+  useEffect(() => {
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
+  return ref;
+}
+
+export function Pager({ page, pages, total, onPage, size, onSize }: { page: number; pages: number; total: number; onPage: (p: number) => void; size?: number; onSize?: (all: boolean) => void }) {
   return (
     <div className="pager">
       <span>Всего: {total.toLocaleString('ru-RU')}</span>
+      {onSize ? (
+        <span className="seg pager-size">
+          <button className={size !== 100 ? 'on' : ''} onClick={() => onSize(true)}>Все сразу</button>
+          <button className={size === 100 ? 'on' : ''} onClick={() => onSize(false)}>По 100</button>
+        </span>
+      ) : null}
       {pages > 1 ? (
         <>
           <Button small disabled={page <= 1} onClick={() => onPage(page - 1)} label="Предыдущая страница"><Icon name="left" /></Button>

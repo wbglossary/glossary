@@ -6,6 +6,7 @@ import { TermDrawer } from '../ui/TermDrawer';
 import { DEFAULT_COLS, FIELD_COLS, TermsTable, type FieldCol } from '../ui/TermsTable';
 import { LangCellView } from '../ui/LangCellView';
 import { Icon } from '../ui/Icon';
+import { PushCard } from '../push';
 
 export function HomePage({ me }: PageProps) {
   const [q, setQ] = useState('');
@@ -53,6 +54,7 @@ export function HomePage({ me }: PageProps) {
               </div>
             </>
           ) : null}
+          {me.role !== 'reader' && me.role !== 'contractor' ? <PushCard /> : null}
           <h2>Недавно добавленные</h2>
           <div className="table-wrap">
             <table className="grid">

@@ -193,6 +193,11 @@ begin
 end $$;
 
 -- Предупреждения о возможных дублях и о вариантах из «Как нельзя» (не запрет)
+-- Одинаковые русские термины — с учётом заглавных букв: «Данные» и «данные» — разные термины
+create or replace function ru_case_key(t text) returns text language sql immutable parallel safe as $$
+  select regexp_replace(replace(replace(coalesce(t, ''), 'ё', 'е'), 'Ё', 'Е'), '[[:space:]]+', '', 'g')
+$$;
+
 create or replace function duplicate_warnings(p_ru text, p_tr jsonb, p_excl_term int default null, p_excl_req int default null)
 returns text[] language plpgsql stable as $$
 declare outv text[] := '{}'; v_key text := norm_term(p_ru); r record; l text; v text;
@@ -350,7 +355,7 @@ begin
     end;
   end loop;
   if is_en_validator(u) then
-    select count(*) into n from (select ru_norm from terms where status = 'active' group by ru_norm having count(*) > 1) d;
+    select count(*) into n from (select ru_case_key(ru) from terms where status = 'active' group by ru_case_key(ru) having count(*) > 1) d;
     cards := cards || jsonb_build_object('key', 'dupes', 'label', 'Одинаковые русские термины', 'count', n, 'link', 'glossary?dupes=1');
   end if;
   if u.role in ('manager','contractor','translator','validator') then
@@ -476,10 +481,12 @@ create or replace function lang_cells(p_term int) returns jsonb language sql sta
   from languages l where l.active
 $$;
 
+drop function if exists glossary_page(text, integer, text, text, integer, integer, boolean);
+-- p_hide_unused: скрыть термины, которые «не актуально» для этих языков (обычно — для языков самого человека)
 create or replace function glossary_page(p_q text default null, p_project int default null, p_lang text default null,
-  p_mode text default 'any', p_page int default 1, p_size int default 100, p_dupes boolean default false) returns jsonb
+  p_mode text default 'any', p_page int default 1, p_size int default 100, p_dupes boolean default false, p_hide_unused text[] default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); v_total int; v_items jsonb; v_size int := least(greatest(p_size, 10), 500);
+declare u profiles := app_profile(); v_total int; v_items jsonb; v_size int := least(greatest(p_size, 10), 5000);
 begin
   with base as (
     select t.*, search_rank(t, p_q) as rnk from terms t
@@ -487,7 +494,9 @@ begin
        and (p_project is null or exists (select 1 from term_projects tp where tp.term_id = t.id and tp.project_id = p_project))
        and (p_mode = 'any' or p_lang is null or
             (p_mode = 'has') = exists (select 1 from translations x where x.term_id = t.id and x.lang = p_lang and x.status in ('approved','unchecked')))
-       and (not p_dupes or exists (select 1 from terms d where d.status = 'active' and d.ru_norm = t.ru_norm and d.id <> t.id))
+       and (cardinality(coalesce(p_hide_unused, '{}')) = 0
+            or not exists (select 1 from term_langs tl where tl.term_id = t.id and tl.unused and tl.lang = any(p_hide_unused)))
+       and (not p_dupes or exists (select 1 from terms d where d.status = 'active' and d.ru_norm = t.ru_norm and ru_case_key(d.ru) = ru_case_key(t.ru) and d.id <> t.id))
        and search_match(t, p_q)
   ), pg as (select * from base order by rnk, lower(ru), tb limit v_size offset (greatest(p_page, 1) - 1) * v_size)
   select (select count(*) from base), coalesce(jsonb_agg(jsonb_build_object(
@@ -1403,10 +1412,11 @@ end $$;
 -- =====================================================================
 
 -- p_tab: mine | new | review. p_status (для mine): all | need | draft | unchecked | approved | unused
+drop function if exists work_page(text, text, text, integer, text, integer, integer);
 create or replace function work_page(p_lang text, p_tab text default 'mine', p_status text default 'all', p_project int default null,
-  p_q text default null, p_page int default 1, p_size int default 100) returns jsonb
+  p_q text default null, p_page int default 1, p_size int default 100, p_hide_unused boolean default false) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare u profiles := app_profile(); v_total int; v_items jsonb; v_size int := least(greatest(p_size, 10), 500); v_counts jsonb;
+declare u profiles := app_profile(); v_total int; v_items jsonb; v_size int := least(greatest(p_size, 10), 5000); v_counts jsonb;
 begin
   if not (works_lang(u, p_lang) or is_owner(u) or contractor_direct(u, p_lang)) then
     perform app_error('Рабочая область ' || lang_gen(p_lang) || ' доступна переводчику и валидатору этого языка.');
@@ -1421,7 +1431,7 @@ begin
       case p_tab
         when 'new' then b.st in ('need','optional') and exists (select 1 from translations x where x.term_id = b.id and x.lang <> p_lang and x.status = 'approved')
         when 'review' then exists (select 1 from translations x where x.term_id = b.id and x.lang = p_lang and x.status = 'unchecked')
-        else (p_status = 'all' or b.st = p_status) end
+        else (p_status = 'all' and not (p_hide_unused and b.st = 'unused')) or b.st = p_status end
   ), pg as (
     select * from sel order by case when p_tab = 'new' then -extract(epoch from created_at) else 0 end, lower(ru), tb
     limit v_size offset (greatest(p_page, 1) - 1) * v_size
@@ -1533,6 +1543,26 @@ begin
         'cells', lang_cells(t.id)) order by lower(t.ru), t.tb)
       from terms t where t.status = 'active'
        and (p_project is null or exists (select 1 from term_projects tp where tp.term_id = t.id and tp.project_id = p_project))), '[]'));
+end $$;
+
+-- Для подрядчиков: термины, где на выбранных языках ещё нет перевода (и язык не «не актуально»).
+-- Уже готовые переводы других выбранных языков тоже отдаём — для справки.
+create or replace function export_contractor(p_langs text[], p_project int default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile(); v_langs text[];
+begin
+  if not can_export(u) then perform app_error('Выгружать глоссарий могут менеджер и владелец.'); end if;
+  v_langs := array(select l.code from languages l where l.code = any(p_langs) and l.active order by l.sort);
+  if cardinality(v_langs) = 0 then perform app_error('Выберите хотя бы один язык.'); end if;
+  return jsonb_build_object(
+    'languages', (select jsonb_agg(jsonb_build_object('code', l.code, 'name', l.name) order by l.sort) from languages l where l.code = any(v_langs)),
+    'terms', coalesce((select jsonb_agg(jsonb_build_object('tb', t.tb, 'ru', t.ru, 'definition', t.definition, 'examples', t.examples,
+        'tr', coalesce((select jsonb_object_agg(z.lang, z.txt) from (select x.lang, string_agg(x.text, '; ' order by x.sort, x.id) txt
+                 from translations x where x.term_id = t.id and x.lang = any(v_langs) and x.status <> 'obsolete' group by x.lang) z), '{}'))
+        order by lower(t.ru), t.tb)
+      from terms t where t.status = 'active'
+       and (p_project is null or exists (select 1 from term_projects tp where tp.term_id = t.id and tp.project_id = p_project))
+       and exists (select 1 from unnest(v_langs) l where lang_status(t.id, l) in ('need','optional'))), '[]'));
 end $$;
 
 create or replace function export_count(p_project int default null) returns int
@@ -1907,6 +1937,27 @@ begin
 end $$;
 
 -- =====================================================================
+-- API: напоминания в браузере — сохранить или убрать подписку этого браузера
+-- =====================================================================
+create or replace function save_push_subscription(p_sub jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile();
+begin
+  if coalesce(p_sub->>'endpoint', '') !~ '^https://' or coalesce(p_sub->'keys'->>'p256dh', '') = '' or coalesce(p_sub->'keys'->>'auth', '') = '' then
+    perform app_error('Браузер не дал подписку на уведомления. Попробуйте ещё раз.');
+  end if;
+  insert into push_subs(endpoint, profile_id, p256dh, auth) values (p_sub->>'endpoint', u.id, p_sub->'keys'->>'p256dh', p_sub->'keys'->>'auth')
+  on conflict (endpoint) do update set profile_id = excluded.profile_id, p256dh = excluded.p256dh, auth = excluded.auth;
+end $$;
+
+create or replace function remove_push_subscription(p_endpoint text) returns void
+language plpgsql security definer set search_path = public as $$
+declare u profiles := app_profile();
+begin
+  delete from push_subs where endpoint = p_endpoint and profile_id = u.id;
+end $$;
+
+-- =====================================================================
 -- Вход только для добавленных владельцем людей
 -- =====================================================================
 create or replace function only_invited_users() returns trigger
@@ -1930,7 +1981,7 @@ declare f text;
 begin
   foreach f in array array[
     'me()', 'set_prefs(jsonb)', 'set_avatar(text)', 'dashboard()',
-    'glossary_page(text, integer, text, text, integer, integer, boolean)', 'recent_terms(integer)', 'term_card(integer, text)',
+    'glossary_page(text, integer, text, text, integer, integer, boolean, text[])', 'recent_terms(integer)', 'term_card(integer, text)',
     'similar_terms(text)', 'check_duplicates(text, jsonb, integer)', 'submit_request(jsonb)', 'set_request_translation(integer, text, text)',
     'edit_request(integer, jsonb)', 'approve_request(integer, integer, boolean)', 'reject_request(integer, integer)',
     'lang_requests(text)', 'my_requests()', 'add_request_comment(integer, text)', 'list_request_comments(integer)',
@@ -1939,13 +1990,13 @@ begin
     'propose_obsolete(integer, text)', 'answer_obsolete(integer, text, text)', 'close_obsolete(integer)',
     'edit_ru(integer, integer, jsonb)', 'set_term_project(integer[], integer, boolean)', 'archive_term(integer, integer)', 'restore_term(integer, integer)', 'delete_term(integer, text)',
     'merge_terms(integer, integer, jsonb)', 'add_term_comment(integer, text)', 'hide_term_comment(integer)',
-    'work_page(text, text, text, integer, text, integer, integer)', 'archive_lists(text)', 'log_page(jsonb, integer, integer)',
-    'export_data(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',
+    'work_page(text, text, text, integer, text, integer, integer, boolean)', 'archive_lists(text)', 'log_page(jsonb, integer, integer)',
+    'export_data(text[], integer)', 'export_contractor(text[], integer)', 'export_view(integer)', 'export_count(integer)', 'log_export(text[], integer, text, integer)', 'export_history()',
     'admin_users()', 'admin_create_user(text, text, text, text, jsonb)', 'admin_update_user(integer, text, text, text, jsonb)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
     'admin_add_project(text)', 'admin_update_project(integer, text, boolean)', 'admin_delete_project(integer)',
     'withdraw_request(integer)', 'set_lang_optional(integer, text, boolean)', 'import_translations(jsonb, boolean, integer[])',
-    'submit_feedback(text, text, text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'
+    'submit_feedback(text, text, text)', 'save_push_subscription(jsonb)', 'remove_push_subscription(text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'
   ] loop
     execute 'grant execute on function ' || f || ' to authenticated';
   end loop;

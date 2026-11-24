@@ -1,9 +1,16 @@
-# Каждую ночь: резервная копия базы (хранится 30 дней) и заодно «будим» бесплатный Supabase.
+# Каждую ночь: резервная копия базы и заодно «будим» бесплатный Supabase.
+# По понедельникам копия уходит владельцам на почту. В GitHub копия не выкладывается: репозиторий публичный,
+# а в копии есть почты и имена людей.
 name: Ночная копия базы
 on:
   schedule:
     - cron: '0 1 * * *'
   workflow_dispatch:
+    inputs:
+      mail:
+        description: 'Отправить копию владельцам на почту сейчас'
+        type: boolean
+        default: true
 jobs:
   backup:
     runs-on: ubuntu-latest
@@ -17,8 +24,11 @@ jobs:
       - run: npm run backup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: backup-${{ github.run_id }}
-          path: backups/
-          retention-days: 30
+      - name: Копия владельцам на почту (по понедельникам или вручную)
+        run: |
+          if [ "$(date -u +%u)" = "1" ] || [ "$MANUAL" = "true" ]; then npx tsx scripts/mail-backup.ts; else echo "Не понедельник — письмо не отправляю."; fi
+        env:
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' && inputs.mail }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

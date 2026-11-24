@@ -1,0 +1,34 @@
+# Напоминание раз в неделю (понедельник, 11:00 по Москве): письмо + уведомление в браузере.
+# Пока переменная REMINDERS_ON (Settings → Secrets and variables → Actions → Variables) не равна yes — всем не отправляется.
+# Вручную: Actions → «Напоминания» → Run workflow → впишите свою почту, чтобы прислать только себе.
+name: Напоминания
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Почта: отправить только этому человеку (проверка). Пусто — всем'
+        type: string
+        default: ''
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Отправить
+        run: |
+          if [ -n "$ONLY" ]; then npx tsx scripts/weekly-reminder.ts "--only=$ONLY"; else npx tsx scripts/weekly-reminder.ts --all; fi
+        env:
+          ONLY: ${{ inputs.only }}
+          REMINDERS_ON: ${{ vars.REMINDERS_ON }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
