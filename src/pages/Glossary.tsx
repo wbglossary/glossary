@@ -18,7 +18,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   // массовая работа с проектами — менеджер, валидатор английского, владелец
   const bulk = can.editRu(me);
   const [sel, setSel] = useState<number[]>([]);
-  const [bulkProject, setBulkProject] = useState<number | ''>('');
+  const [bulkProjects, setBulkProjects] = useState<number[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const shown = (me.prefs.langs?.length ? me.prefs.langs : active.map((l) => l.code)).filter((c) => active.some((l) => l.code === c));
@@ -35,16 +35,19 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   };
   const toggle = (list: string[], key: string, on: boolean) => (on ? [...list, key] : list.filter((x) => x !== key));
   const runBulk = async (add: boolean) => {
-    if (!bulkProject) { setBulkMsg({ kind: 'error', text: 'Выберите проект.' }); return; }
-    const name = me.projects.find((p) => p.id === bulkProject)?.name ?? '';
+    if (!bulkProjects.length) { setBulkMsg({ kind: 'error', text: 'Отметьте хотя бы один проект.' }); return; }
     setBulkBusy(true); setBulkMsg(null);
+    const done: string[] = [];
     try {
-      const n = await rpc<number>('set_term_project', { p_terms: sel, p_project: bulkProject, p_add: add });
-      setBulkMsg({ kind: 'ok', text: add
-        ? `Добавлено в «${name}»: ${n}${n < sel.length ? ` (остальные ${sel.length - n} уже были в проекте)` : ''}.`
-        : `Убрано из «${name}»: ${n}${n < sel.length ? ` (остальных ${sel.length - n} в проекте не было)` : ''}.` });
-      setSel([]); reload();
-    } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setBulkBusy(false); }
+      for (const id of bulkProjects) {
+        const name = me.projects.find((p) => p.id === id)?.name ?? '';
+        const n = await rpc<number>('set_term_project', { p_terms: sel, p_project: id, p_add: add });
+        done.push(`«${name}» — ${n}`);
+      }
+      setBulkMsg({ kind: 'ok', text: (add ? 'Добавлено в проекты: ' : 'Убрано из проектов: ') + done.join(', ')
+        + '. Где число меньше отмеченных — эти термины уже были (или не были) в проекте.' });
+      setSel([]); setBulkProjects([]); reload();
+    } catch (e) { setBulkMsg({ kind: 'error', text: (done.length ? `Успели: ${done.join(', ')}. ` : '') + (e as Error).message }); } finally { setBulkBusy(false); }
   };
 
   return (
@@ -99,12 +102,12 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
       {bulk && sel.length ? (
         <div className="bulkbar">
           <b>Отмечено: {sel.length}</b>
-          <select value={bulkProject} onChange={(e) => setBulkProject(e.target.value ? Number(e.target.value) : '')} aria-label="Проект">
-            <option value="">— проект —</option>
-            {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.closed ? ' (закрыт)' : ''}</option>)}
-          </select>
-          <Button kind="primary" disabled={bulkBusy || !bulkProject} onClick={() => runBulk(true)}>Добавить в проект</Button>
-          <Button disabled={bulkBusy || !bulkProject} onClick={() => runBulk(false)}>Убрать из проекта</Button>
+          <div className="checks" role="group" aria-label="Проекты">{me.projects.map((p) => (
+            <label key={p.id}><input type="checkbox" checked={bulkProjects.includes(p.id)}
+              onChange={(e) => setBulkProjects(e.target.checked ? [...bulkProjects, p.id] : bulkProjects.filter((x) => x !== p.id))} /> {p.name}{p.closed ? ' (закрыт)' : ''}</label>
+          ))}</div>
+          <Button kind="primary" disabled={bulkBusy || !bulkProjects.length} onClick={() => runBulk(true)}>Добавить в проекты</Button>
+          <Button disabled={bulkBusy || !bulkProjects.length} onClick={() => runBulk(false)}>Убрать из проектов</Button>
           <Button kind="link" onClick={() => setSel([])}>Снять отметки</Button>
         </div>
       ) : null}

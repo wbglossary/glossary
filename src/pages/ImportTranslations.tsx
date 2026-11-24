@@ -83,7 +83,7 @@ export function ImportTranslationsPage({ me }: PageProps) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [fileName, setFileName] = useState('');
   const [check, setCheck] = useState<Row[] | null>(null);
-  const [project, setProject] = useState<number | ''>('');
+  const [projects, setProjects] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error' | 'warn'; text: string } | null>(null);
   const sheet = sheets[sheetIx];
@@ -142,7 +142,7 @@ export function ImportTranslationsPage({ me }: PageProps) {
     if (!langCols.length) return setMsg({ kind: 'error', text: 'Не нашла ни одного столбца с языком. Укажите язык у столбцов с переводами.' });
     setBusy(true); setMsg(null);
     try {
-      const r = await rpc<{ rows: Row[]; added: number; requests: string[] }>('import_translations', { p_rows: payload(), p_apply: apply, p_project: project || null });
+      const r = await rpc<{ rows: Row[]; added: number; requests: string[] }>('import_translations', { p_rows: payload(), p_apply: apply, p_projects: projects.length ? projects : null });
       if (apply) {
         setMsg({ kind: 'ok', text: `Готово. Добавлено переводов: ${r.added}.`
           + (r.requests.length ? ` Новых терминов на проверку валидаторам: ${r.requests.length} (${r.requests.slice(0, 5).join(', ')}${r.requests.length > 5 ? '…' : ''}) — они в «Моих заявках».` : '') });
@@ -200,12 +200,12 @@ export function ImportTranslationsPage({ me }: PageProps) {
             <p className="small muted">
               Языки: {langCols.length ? [...new Set(langCols.map((c) => c.code))].join(', ') : 'не найдены'} · строк с переводами: {payload().length}
             </p>
-            <label className="field"><span>Проект для новых терминов (по желанию)</span>
-              <select value={project} onChange={(e) => { setProject(e.target.value ? Number(e.target.value) : ''); setCheck(null); }}>
-                <option value="">— без проекта (общие) —</option>
-                {me.projects.filter((p) => !p.closed).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
+            <div className="field"><span>Проекты для новых терминов (по желанию, можно несколько)</span>
+              <div className="checks">{me.projects.filter((p) => !p.closed).map((p) => (
+                <label key={p.id}><input type="checkbox" checked={projects.includes(p.id)}
+                  onChange={(e) => { setProjects(e.target.checked ? [...projects, p.id] : projects.filter((x) => x !== p.id)); setCheck(null); }} /> {p.name}</label>
+              ))}</div>
+            </div>
             <Button kind="primary" disabled={busy} onClick={() => run(false)}>{busy && !check ? 'Проверяю…' : 'Проверить'}</Button>
             <p className="small muted">«Проверить» ничего не сохраняет — просто покажет, что куда попадёт.</p>
           </>

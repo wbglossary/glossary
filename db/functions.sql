@@ -1797,7 +1797,8 @@ create or replace function pick_by_definition(p_ids int[], p_def text) returns i
 $$;
 
 drop function if exists import_translations(jsonb, boolean);
-create or replace function import_translations(p_rows jsonb, p_apply boolean default false, p_project int default null) returns jsonb
+drop function if exists import_translations(jsonb, boolean, integer);
+create or replace function import_translations(p_rows jsonb, p_apply boolean default false, p_projects int[] default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); e jsonb; i int := 0; v_tb text; v_ru text; v_def text; v_term int; v_ids int[];
   v_match text; v_lang text; v_text text; v_cur text; v_st text; v_lst jsonb; outv jsonb := '[]'; v_add int := 0;
@@ -1807,9 +1808,9 @@ begin
   if u.role not in ('manager','owner') then perform app_error('Загружать переводы могут менеджер и владелец.'); end if;
   if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then perform app_error('В таблице нет строк.'); end if;
   if jsonb_array_length(p_rows) > 5000 then perform app_error('Слишком много строк за раз (больше 5000). Разделите таблицу.'); end if;
-  if p_project is not null then
-    if not exists (select 1 from projects where id = p_project and not closed) then perform app_error('Проект не найден или закрыт.'); end if;
-    v_proj := array[p_project];
+  if cardinality(coalesce(p_projects, '{}')) > 0 then
+    v_proj := array(select id from projects where id = any(p_projects) and not closed order by id);
+    if cardinality(v_proj) <> cardinality(array(select distinct x from unnest(p_projects) x)) then perform app_error('Какой-то проект не найден или закрыт.'); end if;
   end if;
   for e in select * from jsonb_array_elements(p_rows) loop
     i := i + 1; v_term := null; v_cands := null; v_req := null;
@@ -1943,7 +1944,7 @@ begin
     'admin_users()', 'admin_create_user(text, text, text, text, jsonb)', 'admin_update_user(integer, text, text, text, jsonb)', 'admin_set_active(integer, boolean)',
     'admin_languages()', 'admin_add_language(text, text, text, text)', 'admin_update_language(text, text, text, text, boolean)',
     'admin_add_project(text)', 'admin_update_project(integer, text, boolean)', 'admin_delete_project(integer)',
-    'withdraw_request(integer)', 'set_lang_optional(integer, text, boolean)', 'import_translations(jsonb, boolean, integer)',
+    'withdraw_request(integer)', 'set_lang_optional(integer, text, boolean)', 'import_translations(jsonb, boolean, integer[])',
     'submit_feedback(text, text, text)', 'feedback_list(text)', 'answer_feedback(integer, text, text)'
   ] loop
     execute 'grant execute on function ' || f || ' to authenticated';

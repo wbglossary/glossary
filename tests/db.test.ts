@@ -564,7 +564,7 @@ test('загрузка таблицы: новые термины уходят з
   assert.deepEqual(pre.rows.map((x: any) => x.match), ['new', 'dup_in_file', 'ok']);
   assert.equal(pre.rows[0].langs.KA.status, 'new');
   const [p] = await sql<{ id: number }>(`select id from projects where name = 'ПВЗ'`);
-  const done = await call('man', 'import_translations', { p_rows: rows, p_apply: true, p_project: p.id });
+  const done = await call('man', 'import_translations', { p_rows: rows, p_apply: true, p_projects: [p.id] });
   assert.equal(done.requests.length, 1);
   const z = await req(`code = '${done.requests[0]}'`);
   assert.equal(z.status, 'pending');
