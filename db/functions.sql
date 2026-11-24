@@ -372,8 +372,9 @@ begin
       cards := cards || jsonb_build_object('key', 'direct-' || l.code, 'label', 'Без перевода на ' || l.name || ' — можно вписать сразу', 'count', n, 'link', 'work?lang=' || l.code);
     end loop;
   end if;
-  if u.role = 'manager' then
-    for l in select code, name from languages where active and kind = 'full' order by case when code = 'EN' then 0 else 1 end, sort loop
+  if u.role in ('manager','owner') then
+    -- все включённые языки, и полные, и сокращённые
+    for l in select code, name from languages where active order by case when code = 'EN' then 0 else 1 end, sort loop
       select count(*) into n from terms t where t.status = 'active' and lang_status(t.id, l.code) = 'need';
       cards := cards || jsonb_build_object('key', 'need-' || l.code, 'label', 'Без перевода: ' || l.name, 'count', n, 'link', 'glossary?lang=' || l.code || '&mode=missing');
     end loop;

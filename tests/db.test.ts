@@ -668,3 +668,11 @@ test('выгрузка: термин без переводов на выбран
   const n = await call('man', 'export_count', { p_langs: ['HY'] });
   assert.equal(n, d.terms.length);
 });
+
+test('счётчики «Без перевода» по всем языкам — у менеджера и владельца', async () => {
+  for (const who of ['man', 'owner']) {
+    const d = await call(who, 'dashboard');
+    assert.ok(d.some((c: any) => c.key === 'need-AM'), `${who}: есть сокращённый AM`);
+    assert.ok(d.some((c: any) => c.key === 'need-EN'), `${who}: есть EN`);
+  }
+});
