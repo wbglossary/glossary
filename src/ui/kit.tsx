@@ -60,14 +60,24 @@ export function Confirm(p: {
 }
 
 export function Drawer({ open, onClose, children, title }: { open: boolean; onClose: () => void; children: ReactNode; title?: ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
   useEffect(() => {
-    const f = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', f);
-    return () => window.removeEventListener('keydown', f);
-  }, [onClose]);
+    if (!open) return;
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // клик мимо карточки закрывает её (кроме окон, открытых из самой карточки)
+    const down = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (!t || !t.isConnected || ref.current?.contains(t)) return;
+      if (t.closest('.modal-back, .modal, .fb-fab')) return;
+      onClose();
+    };
+    window.addEventListener('keydown', key);
+    document.addEventListener('mousedown', down);
+    return () => { window.removeEventListener('keydown', key); document.removeEventListener('mousedown', down); };
+  }, [open, onClose]);
   if (!open) return null;
   return (
-    <aside className="drawer">
+    <aside className="drawer" ref={ref}>
       <div className="drawer-head">
         <div className="drawer-title">{title}</div>
         <button className="msg-x" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
