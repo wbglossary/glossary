@@ -603,6 +603,8 @@ test('скрыть «не актуально» для своего языка', 
   const all = await call('ven', 'glossary_page', { p_q: 'Данные', p_size: 5000 });
   const hid = await call('ven', 'glossary_page', { p_q: 'Данные', p_size: 5000, p_hide_unused: ['EN'] });
   assert.ok(all.items.some((x: any) => x.id === id) && !hid.items.some((x: any) => x.id === id));
+  const two = await call('ven', 'glossary_page', { p_q: 'Данные', p_size: 5000, p_hide_unused: ['EN', 'KA'] });
+  assert.ok(two.items.some((x: any) => x.id === id), 'для KA актуально — не прячем');
   const w1 = await call('ven', 'work_page', { p_lang: 'EN', p_q: 'Данные' });
   const w2 = await call('ven', 'work_page', { p_lang: 'EN', p_q: 'Данные', p_hide_unused: true });
   assert.ok(w1.items.some((x: any) => x.id === id) && !w2.items.some((x: any) => x.id === id));

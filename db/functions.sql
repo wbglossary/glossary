@@ -482,7 +482,7 @@ create or replace function lang_cells(p_term int) returns jsonb language sql sta
 $$;
 
 drop function if exists glossary_page(text, integer, text, text, integer, integer, boolean);
--- p_hide_unused: скрыть термины, которые «не актуально» для этих языков (обычно — для языков самого человека)
+-- p_hide_unused: скрыть термины, которые «не актуально» для всех этих языков (свои языки человека или показанные столбцы)
 create or replace function glossary_page(p_q text default null, p_project int default null, p_lang text default null,
   p_mode text default 'any', p_page int default 1, p_size int default 100, p_dupes boolean default false, p_hide_unused text[] default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -495,7 +495,9 @@ begin
        and (p_mode = 'any' or p_lang is null or
             (p_mode = 'has') = exists (select 1 from translations x where x.term_id = t.id and x.lang = p_lang and x.status in ('approved','unchecked')))
        and (cardinality(coalesce(p_hide_unused, '{}')) = 0
-            or not exists (select 1 from term_langs tl where tl.term_id = t.id and tl.unused and tl.lang = any(p_hide_unused)))
+            -- скрываем, только если термин «не актуально» для всех этих языков
+            or exists (select 1 from unnest(p_hide_unused) hl
+                        where not coalesce((select tl.unused from term_langs tl where tl.term_id = t.id and tl.lang = hl), false)))
        and (not p_dupes or exists (select 1 from terms d where d.status = 'active' and d.ru_norm = t.ru_norm and ru_case_key(d.ru) = ru_case_key(t.ru) and d.id <> t.id))
        and search_match(t, p_q)
   ), pg as (select * from base order by rnk, lower(ru), tb limit v_size offset (greatest(p_page, 1) - 1) * v_size)

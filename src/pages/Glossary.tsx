@@ -16,7 +16,8 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const [page, setPage] = useState(1);
   const [size, setSize] = usePageSize();
   const myLangs = me.langs.map((l) => l.code);
-  const hideUnused = !!me.prefs.hide_unused && myLangs.length > 0;
+  // у переводчиков и валидаторов «не актуально» своего языка скрыто сразу; у остальных — по галочке, для показанных языков
+  const hideUnused = me.prefs.hide_unused ?? myLangs.length > 0;
   const wrap = useFillHeight<HTMLDivElement>();
   const [open, setOpen] = useState<number | null>(null);
   const [chooser, setChooser] = useState(false);
@@ -30,8 +31,8 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
 
   const { data, error, loading, reload } = useAsync(
     () => rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any', p_page: page, p_size: size, p_dupes: dupes,
-      p_hide_unused: hideUnused ? myLangs : null }),
-    [q, project, lang, mode, page, dupes, size, hideUnused]
+      p_hide_unused: hideUnused ? (myLangs.length ? myLangs : shown) : null }),
+    [q, project, lang, mode, page, dupes, size, hideUnused, shown.join(',')]
   );
   const cols = (me.prefs.cols ?? DEFAULT_COLS).filter((c): c is FieldCol => FIELD_COLS.some((f) => f.key === c));
   const [saving, setSaving] = useState(false);
@@ -45,7 +46,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
     setDl(true); setBulkMsg(null);
     try {
       const all = await rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any',
-        p_page: 1, p_size: 5000, p_dupes: dupes, p_hide_unused: hideUnused ? myLangs : null });
+        p_page: 1, p_size: 5000, p_dupes: dupes, p_hide_unused: hideUnused ? (myLangs.length ? myLangs : shown) : null });
       const fields = FIELD_COLS.filter((f) => cols.includes(f.key) && f.key !== 'lang_comment').map((f) => ({ key: f.key, label: f.label }));
       const d = new Date(); const p2 = (n: number) => String(n).padStart(2, '0');
       const projName = project ? me.projects.find((p) => p.id === project)?.name : '';
@@ -93,10 +94,9 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
         <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
         <span style={{ flex: 1 }} />
         <Button disabled={dl} onClick={downloadShown}>{dl ? 'Готовлю…' : '⬇ Скачать (.xlsx)'}</Button>
-        {myLangs.length ? (
-          <label className="small"><input type="checkbox" checked={hideUnused} disabled={saving}
-            onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально» для {myLangs.join(', ')}</label>
-        ) : null}
+        <label className="small" title={myLangs.length ? '' : 'Скрываются термины, которые «не актуально» для всех показанных языков'}>
+          <input type="checkbox" checked={hideUnused} disabled={saving}
+            onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально»{myLangs.length ? ` (${myLangs.join(', ')})` : ''}</label>
         {dupes ? <a href="#/glossary">показать все термины</a> : null}
       </div>
       {chooser ? (

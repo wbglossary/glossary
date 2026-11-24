@@ -42,7 +42,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [size, setSize] = usePageSize();
-  const hideUnused = !!me.prefs.hide_unused;
+  const hideUnused = me.prefs.hide_unused ?? true;   // «не актуально» своего языка скрыто сразу
   const wrap = useFillHeight<HTMLDivElement>();
   const [open, setOpen] = useState<number | null>(null);
   const [sel, setSel] = useState<number[]>([]);
