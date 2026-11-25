@@ -145,7 +145,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
         </span>
         <span style={{ flex: 1 }} />
         <span className="dl-box">
-          <Button kind="primary" small disabled={dl || !data?.total} onClick={downloadShown}>{dl ? 'Готовлю…' : `⬇ Скачать ${data ? data.total.toLocaleString('ru-RU') : ''} (.xlsx)`}</Button>
+          <Button kind="primary" small disabled={dl || !data?.total} why={!data?.total ? 'Ничего не найдено' : undefined} onClick={downloadShown}>{dl ? 'Готовлю…' : `⬇ Скачать ${data ? data.total.toLocaleString('ru-RU') : ''} (.xlsx)`}</Button>
           <span className="muted small">найденные, со столбцами как на экране</span>
         </span>
       </div>
@@ -184,7 +184,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
             <label key={p.id}><input type="checkbox" checked={bulkProjects.includes(p.id)}
               onChange={(e) => setBulkProjects(e.target.checked ? [...bulkProjects, p.id] : bulkProjects.filter((x) => x !== p.id))} /> {p.name}{p.closed ? ' (закрыт)' : ''}</label>
           ))}</div>
-          <Button kind="primary" disabled={bulkBusy || !bulkProjects.length} onClick={() => runBulk(true)}>Добавить в проекты</Button>
+          <Button kind="primary" disabled={bulkBusy || !bulkProjects.length} why={!bulkProjects.length ? 'Отметьте проект' : undefined} onClick={() => runBulk(true)}>Добавить в проекты</Button>
           <Button disabled={bulkBusy || !bulkProjects.length} onClick={() => runBulk(false)}>Убрать из проектов</Button>
           {unusedLangs.length ? (
             <span className="row gap bulk-unused">
@@ -192,7 +192,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
                 <option value="">— язык —</option>
                 {unusedLangs.map((l) => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
               </select>
-              <Button disabled={bulkBusy || !unusedLang} onClick={() => runUnused(true)}>Не актуально для языка</Button>
+              <Button disabled={bulkBusy || !unusedLang} why={!unusedLang ? 'Выберите язык' : undefined} onClick={() => runUnused(true)}>Не актуально для языка</Button>
               <Button kind="link" disabled={bulkBusy || !unusedLang} onClick={() => runUnused(false)}>Вернуть</Button>
             </span>
           ) : null}

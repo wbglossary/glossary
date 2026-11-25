@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Author } from '../api';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
+import { toast } from './Toasts';
 
 /** Кнопка «Скопировать»: один клик — текст в буфере. */
 export function CopyButton({ text }: { text: string }) {
@@ -15,9 +16,8 @@ export function CopyButton({ text }: { text: string }) {
           try { await navigator.clipboard.writeText(text); } catch {
             const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
           }
-          setDone(true); setTimeout(() => setDone(false), 1200);
+          setDone(true); setTimeout(() => setDone(false), 1200); toast('Скопировано');
         }}><Icon name={done ? 'check' : 'copy'} size={14} /></button>
-      {done ? <span className="copied" role="status">Скопировано</span> : null}
     </>
   );
 }

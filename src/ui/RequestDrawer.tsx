@@ -57,7 +57,7 @@ export function RequestDrawer({ item, onClose, onChanged }: { item: RequestItem 
       ) : <p className="muted">Комментариев пока нет.</p>}
       <label className="field"><span>Ваш комментарий</span><textarea value={text} onChange={(e) => setText(e.target.value)} /></label>
       {err ? <Message kind="error">{err}</Message> : null}
-      <Button kind="primary" disabled={!text.trim()} onClick={send}>Отправить комментарий</Button>
+      <Button kind="primary" disabled={!text.trim()} why="Сначала напишите комментарий" onClick={send}>Отправить комментарий</Button>
     </Drawer>
   );
 }

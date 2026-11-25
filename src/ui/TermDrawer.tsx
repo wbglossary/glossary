@@ -6,6 +6,7 @@ import { Button, Confirm, Drawer, Message, SearchBox, StatusBadge, useAsync } fr
 import { LogCell } from '../logText';
 import { Icon, type IconName } from './Icon';
 import { hashParam, setHashParam } from '../router';
+import { toast } from './Toasts';
 
 /** Карточка термина справа. Кнопки — только доступные; права всё равно проверяет база. */
 export function TermDrawer({ me, id, tb, onClose, onChanged, list, onOpen }: {
@@ -26,6 +27,7 @@ export function TermDrawer({ me, id, tb, onClose, onChanged, list, onOpen }: {
   const [showEmpty, setShowEmpty] = useState(false);
   const [editProjects, setEditProjects] = useState(false);
   useEffect(() => { setShowEmpty(false); setEditProjects(false); setMsg(null); }, [id, tb]);
+  useEffect(() => { if (msg?.kind === 'ok') { toast(msg.text); setMsg(null); } }, [msg]);
   const isOpen = !!id || !!tb;
 
   // номер открытой карточки — в адресе страницы, чтобы ссылку можно было отправить коллеге
@@ -77,7 +79,7 @@ export function TermDrawer({ me, id, tb, onClose, onChanged, list, onOpen }: {
       {loading && !c ? <div>Загрузка…</div> : null}
       {error ? <Message kind="error">{error}</Message> : null}
       {!loading && !c && !error ? <Message kind="warn">Термин не найден — возможно, его удалили или объединили с другим.</Message> : null}
-      {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
+      {msg && msg.kind === 'error' ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
       {c ? (
         <>
           <div className="row gap drawer-sticky">
@@ -135,6 +137,10 @@ export function TermDrawer({ me, id, tb, onClose, onChanged, list, onOpen }: {
                     <div className="langhead">
                       <b>{l.code}</b> <span className="muted">{l.name}{l.kind === 'short' ? ' · сокращённый' : ''}</span>
                       <StatusBadge status={l.status} />
+                      {c.status === 'active' && (l.status === 'draft' || l.status === 'unchecked') && !l.can.approve ? (
+                        <span className="perm-note" title="Согласовывать переводы может только валидатор этого языка">
+                          <Icon name="help" size={13} /> {me.languages.find((x) => x.code === l.code)?.has_validator ? `Согласует валидатор ${l.code}` : 'У языка пока нет валидатора'}</span>
+                      ) : null}
                       <span style={{ flex: 1 }} />
                       <span className="acts" role="group" aria-label={`Действия: ${l.name}`}>
                         {l.can.approve && (l.status === 'draft' || l.status === 'unchecked') ? <Act icon="check" primary disabled={busy} title="Утвердить перевод: статус станет «Согласовано»" onClick={() => approve(l, true)}>Согласовать</Act> : null}
@@ -344,7 +350,7 @@ function Comments({ c, reload, setMsg }: { c: TermCard; reload: () => void; setM
       {c.can.comment ? (
         <>
           <label className="field"><span>Ваш комментарий</span><textarea value={text} onChange={(e) => setText(e.target.value)} /></label>
-          <Button kind="primary" disabled={!text.trim()} onClick={send}>Отправить</Button>
+          <Button kind="primary" disabled={!text.trim()} why="Сначала напишите комментарий" onClick={send}>Отправить</Button>
         </>
       ) : null}
     </>
@@ -463,7 +469,7 @@ function CopyAll({ c }: { c: TermCard }) {
   ].filter(Boolean).join('\n');
   return (
     <button className="icon-btn" title="Скопировать весь термин: номер, определение и все переводы" aria-label="Скопировать весь термин"
-      onClick={async () => { await copyText(text); setDone(true); setTimeout(() => setDone(false), 1400); }}>
+      onClick={async () => { await copyText(text); setDone(true); setTimeout(() => setDone(false), 1400); toast('Термин скопирован целиком'); }}>
       <Icon name={done ? 'check' : 'copy'} size={16} /><span className="small">{done ? 'Скопировано' : 'Всё'}</span>
     </button>
   );
@@ -476,7 +482,7 @@ function CopyLink({ tb }: { tb: string }) {
     <button className="icon-btn" title="Скопировать ссылку на этот термин" aria-label="Скопировать ссылку на термин"
       onClick={async () => {
         await copyText(window.location.origin + window.location.pathname + '#/glossary?term=' + encodeURIComponent(tb));
-        setDone(true); setTimeout(() => setDone(false), 1400);
+        setDone(true); setTimeout(() => setDone(false), 1400); toast('Ссылка скопирована — её можно отправить');
       }}>
       <Icon name={done ? 'check' : 'link'} size={16} /><span className="small">{done ? 'Скопировано' : 'Ссылка'}</span>
     </button>

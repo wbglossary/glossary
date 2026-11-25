@@ -44,7 +44,7 @@ export function TermsTable({ me, items, langs, cols = DEFAULT_COLS, openId, onOp
   const fields = FIELD_COLS.filter((f) => cols.includes(f.key) && f.key !== 'lang_comment') as { key: Exclude<FieldCol, 'lang_comment'>; label: string }[];
   const langComment = cols.includes('lang_comment');
   return (
-    <table className={`grid sticky${onSelect ? ' with-check' : ''}`}>
+    <table className={`grid sticky cards-sm${onSelect ? ' with-check' : ''}`}>
       <thead>
         <tr>
           {onSelect ? <th className="check-col s0"><input type="checkbox" aria-label="Отметить все на странице" checked={allOnPage}
@@ -72,12 +72,12 @@ export function TermsTable({ me, items, langs, cols = DEFAULT_COLS, openId, onOp
             {fields.map((f) => {
               const v = text(r, f.key);
               return (
-                <td key={f.key} className={`field-col fc-${f.key}${f.key === 'projects' ? '' : ' muted'}`}>
+                <td key={f.key} data-label={f.label} className={`field-col fc-${f.key}${f.key === 'projects' ? '' : ' muted'}`}>
                   {v ? <div className="clip" title={v}>{v}</div> : null}
                 </td>
               );
             })}
-            {langs.map((c) => <LangCellView key={c} cell={r.cells[c]} kind={kind(c)} replaced={r.replaced.filter((x) => x.lang === c)} showComment={langComment} />)}
+            {langs.map((c) => <LangCellView key={c} cell={r.cells[c]} kind={kind(c)} replaced={r.replaced.filter((x) => x.lang === c)} showComment={langComment} label={c} />)}
           </tr>
         ))}
       </tbody>

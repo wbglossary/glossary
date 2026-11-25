@@ -3,13 +3,13 @@ import { CopyButton } from './bits';
 import { Icon } from './Icon';
 
 /** Ячейка языка в таблице: перевод, «Скопировать», значки замены и «Как нельзя». */
-export function LangCellView({ cell, kind, replaced, showComment }: { cell?: Cell; kind: 'full' | 'short'; replaced?: GlossaryItem['replaced']; showComment?: boolean }) {
-  if (!cell) return <td />;
+export function LangCellView({ cell, kind, replaced, showComment, label }: { cell?: Cell; kind: 'full' | 'short'; replaced?: GlossaryItem['replaced']; showComment?: boolean; label?: string }) {
+  if (!cell) return <td data-label={label} />;
   const cls = cell.s === 'unused' ? 'c-unused' : cell.s === 'unchecked' ? 'c-unchecked'
     : cell.s === 'need' || (cell.s === 'draft' && !cell.t.length) ? (kind === 'full' ? 'c-need' : '') : '';
   const text = cell.t.join('; ');
   return (
-    <td className={cls}>
+    <td className={cls} data-label={label}>
       {cell.s === 'unused' ? <span className="muted small">не актуально</span> : null}
       {cell.s === 'optional' ? <span className="muted small">по желанию</span> : null}
       {text ? <>{text}<CopyButton text={cell.t[0]} /></> : null}

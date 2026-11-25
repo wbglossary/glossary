@@ -169,7 +169,7 @@ try {
   // 8. Заявки
   await go('work?tab=requests', 'ven');
   await click('text:Заявки и просьбы'); await sleep(1400);
-  await mark(['text:Заявки и просьбы', '.grid tbody tr td input:not([type=checkbox]), .grid tbody tr td textarea', '.grid tbody tr .btn.primary']);
+  await mark(['text:Заявки и просьбы', '.grid tbody tr td input:not([type=checkbox]), .grid tbody tr td textarea', '.grid tbody tr td.nowrap .btn']);
   await shot('requests', { x: 250, y: 60, w: 1050, h: 420 }, 0);
 
   // 9. Предложить термин (менеджер)

@@ -41,6 +41,7 @@ export function HomePage({ me, reloadMe }: PageProps) {
 
   return (
     <div>
+      <Greeting name={me.name} cards={cards.filter((c) => !needByLang.includes(c))} loading={!dash.data} />
       <div className="home-search">
         <h1 style={{ margin: 0 }}>Найти термин</h1>
         <HomeSearch value={q} onChange={setQ} onOpen={setOpen} langs={recentLangs} />
@@ -109,6 +110,22 @@ export function HomePage({ me, reloadMe }: PageProps) {
       )}
       <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={() => { recent.reload(); found.reload(); dash.reload(); }}
         list={(found.data?.items.some((x) => x.id === open) ? found.data.items : recent.data ?? []).map((x) => x.id)} onOpen={setOpen} />
+    </div>
+  );
+}
+
+/** Приветствие по времени суток и короткая сводка, что ждёт сегодня */
+function Greeting({ name, cards, loading }: { name: string; cards: DashCard[]; loading: boolean }) {
+  const h = new Date().getHours();
+  const hello = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
+  const first = name.split(/\s+/)[0] || name;
+  const todo = cards.filter((c) => c.count > 0);
+  return (
+    <div className="greet">
+      <b>{hello}, {first}!</b>{' '}
+      {loading ? null : todo.length
+        ? <span>Вас ждут: {todo.slice(0, 3).map((c, i) => <span key={c.key}>{i ? ', ' : ''}<a href={`#/${c.link}`}>{c.label.toLowerCase()} — {c.count}</a></span>)}{todo.length > 3 ? ' и ещё кое-что ниже' : ''}.</span>
+        : <span>Всё сделано — можно просто искать термины ✨</span>}
     </div>
   );
 }

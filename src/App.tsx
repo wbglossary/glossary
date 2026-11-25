@@ -18,6 +18,7 @@ import { HelpPage } from './pages/Help';
 import { ImportTranslationsPage } from './pages/ImportTranslations';
 import { FeedbackModal } from './ui/FeedbackModal';
 import { TermDrawer } from './ui/TermDrawer';
+import { Toasts } from './ui/Toasts';
 import { Icon } from './ui/Icon';
 import { menuHint } from './menuHints';
 import { ThemeChoice } from './theme';
@@ -32,6 +33,7 @@ export function App() {
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [counts, setCounts] = useState<DashCard[]>([]);
   // ссылка на карточку (…#/glossary?term=TB-00123) открывает термин поверх любой страницы
   const [linkTb, setLinkTb] = useState<string | null>(readRoute().params.get('term'));
@@ -68,7 +70,7 @@ export function App() {
   useEffect(() => { if (session) loadMe(); else setMe(null); }, [session, loadMe]);
   // счётчики для меню — те же, что на Главной; обновляем при переходах между разделами
   useEffect(() => { if (me) rpc<DashCard[]>('dashboard').then(setCounts).catch(() => setCounts([])); }, [me, route.page]);
-  useEffect(() => { setProfileOpen(false); }, [route.page]);
+  useEffect(() => { setProfileOpen(false); setMoreOpen(false); }, [route.page]);
 
   if (session === undefined) return <div className="center">Загрузка…</div>;
   if (!session) return <Login />;
@@ -126,11 +128,8 @@ export function App() {
     ? me.langs.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ')
     : `${ROLE_LABELS[me.role]}${langName ? ` (${langName})` : ''}${me.role === 'contractor' ? ` ${me.contractor_no}` : ''}`;
 
-  return (
-    <div className="layout">
-      <nav className="side" aria-label="Разделы">
-        <div className="logo"><i /> Глоссарий</div>
-        {groups.map((g, gi) => {
+  const navGroups = (
+    <>{groups.map((g, gi) => {
           const items = g.items.filter((m) => m.show);
           if (!items.length) return null;
           return (
@@ -151,10 +150,21 @@ export function App() {
               })}
             </div>
           );
-        })}
+        })}</>
+  );
+  // телефон: снизу 4 главных раздела и «Ещё»
+  const tabPages = ['home', 'glossary', 'work', 'my-requests', 'propose'].filter((p) => visible.some((m) => m.page === p)).slice(0, 4);
+  const moreActive = !tabPages.includes(current);
+
+  return (
+    <div className="layout">
+      <nav className="side" aria-label="Разделы">
+        <div className="logo"><i /> Глоссарий</div>
+        {navGroups}
       </nav>
       <div className="main">
         <header className="top">
+          <div className="top-logo"><i /> Глоссарий</div>
           <div className="profile">
             <button className="profile-btn" aria-haspopup="menu" aria-expanded={profileOpen} onClick={() => setProfileOpen(!profileOpen)}>
               <Avatar name={me.avatar} size={30} />
@@ -175,7 +185,7 @@ export function App() {
             ) : null}
           </div>
         </header>
-        <section className="work">
+        <section className="work" key={current}>
           {current === 'home' && <HomePage {...props} />}
           {current === 'glossary' && <GlossaryPage {...props} />}
           {current === 'work' && <WorkPage {...props} />}
@@ -191,6 +201,25 @@ export function App() {
           {linkTb ? <TermDrawer me={me} id={null} tb={linkTb} onClose={() => { setHashParam('term', null); setLinkTb(null); }} /> : null}
         </section>
       </div>
+      <Toasts />
+      <nav className="tabbar" aria-label="Главные разделы">
+        {tabPages.map((p) => { const m = visible.find((x) => x.page === p)!; const n = badge[p] ?? 0; return (
+          <a key={p} href={`#/${p}`} className={current === p ? 'active' : ''} aria-current={current === p ? 'page' : undefined}>
+            <span className="tab-ico"><Icon name={m.icon} size={20} />{n > 0 ? <span className="tab-dot" aria-label={`${n} ждут`}>{n > 99 ? '99+' : n}</span> : null}</span>
+            <span>{p === 'work' ? 'Работа' : p === 'my-requests' ? 'Заявки' : p === 'propose' ? 'Предложить' : m.label}</span>
+          </a>); })}
+        <button className={moreOpen || moreActive ? 'active' : ''} aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+          <span className="tab-ico"><Icon name="sliders" size={20} /></span><span>Ещё</span>
+        </button>
+      </nav>
+      {moreOpen ? (
+        <div className="more-back" onMouseDown={() => setMoreOpen(false)}>
+          <nav className="more-sheet side" aria-label="Все разделы" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="more-grip" aria-hidden="true" />
+            {navGroups}
+          </nav>
+        </div>
+      ) : null}
       <button className="fb-fab" onClick={() => setFeedbackOpen(true)} aria-label="Обратная связь: вопрос, проблема или идея" title="Обратная связь: вопрос, проблема или идея">
         <Icon name="comment" size={20} />
       </button>

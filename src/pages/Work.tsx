@@ -5,6 +5,7 @@ import { AuthorChip, CopyButton } from '../ui/bits';
 import { ChangeModal, type ChangeMode } from '../ui/ChangeModal';
 import { Button, Confirm, Empty, Message, Pager, SearchBox, StatusBadge, useAsync, useFillHeight, usePageSize } from '../ui/kit';
 import { HelpLink } from '../ui/HelpLink';
+import { toast } from '../ui/Toasts';
 import { RequestDrawer } from '../ui/RequestDrawer';
 import { TermDrawer } from '../ui/TermDrawer';
 import { Icon } from '../ui/Icon';
@@ -67,6 +68,8 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
     [lang, tab, status, project, q, page, size, hideUnused]);
   const reqs = useAsync(() => (isWorker || me.role === 'owner' ? rpc<RequestItem[]>('lang_requests', { p_lang: lang }) : Promise.resolve([])), [lang, tab]);
 
+  useEffect(() => { msgs.filter((m) => m.kind === 'ok').forEach((m) => toast(m.text)); }, [msgs]);
+
   if (!lang) return <Empty>Рабочая область есть у переводчиков и валидаторов.</Empty>;
   const d = data.data;
   const items = d?.items ?? [];
@@ -118,7 +121,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
         </div>
       ) : null}
       {d?.can.unchecked ? <Message kind="info">У языка пока нет валидатора. Ваши переводы сразу видны в глоссарии со статусом «Без проверки».</Message> : null}
-      {msgs.map((m, i) => <Message key={i} kind={m.kind} onClose={() => setMsgs(msgs.filter((_, j) => j !== i))}>{m.text}</Message>)}
+      {msgs.filter((m) => m.kind !== 'ok').map((m, i) => <Message key={i} kind={m.kind} onClose={() => setMsgs(msgs.filter((x) => x !== m))}>{m.text}</Message>)}
 
       {tab === 'requests' ? <RequestsTab me={me} lang={lang} langName={language?.name ?? lang} reqs={reqs} /> : (
         <>
@@ -166,7 +169,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
           ) : null}
           {data.error ? <Message kind="error">{data.error}</Message> : null}
           <div className="table-wrap" ref={wrap}>
-            <table className={`grid sticky work-grid${canSel ? ' with-check' : ''}`}>
+            <table className={`grid sticky work-grid cards-sm${canSel ? ' with-check' : ''}`}>
               <thead><tr>
                 {canSel ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
@@ -187,19 +190,19 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
                       onChange={(e) => setSel(e.target.checked ? [...sel, r.id] : sel.filter((x) => x !== r.id))} /></td> : null}
                     <td className="tb link s1" onClick={() => setOpen(r.id)}>{r.tb}</td>
                     <td className="link s2" onClick={() => setOpen(r.id)}><b>{r.ru}</b>{tab === 'new' ? <div className="muted small">{fmtDate(r.created_at, false)}</div> : null}</td>
-                    <td className={`c-${r.status}`}>
+                    <td className={`c-${r.status} tr-cell`} data-label={lang}>
                       <TrCell row={r} lang={lang} canType={!!d?.can.type} onSaved={() => data.reload()} />
                       {r.forbidden.length ? <div className="small"><span className="muted">Как нельзя: </span>{r.forbidden.map((f, i) => <span key={i} className="forbidden" title={f.note}>{f.text}{i < r.forbidden.length - 1 ? ', ' : ''}</span>)}</div> : null}
                     </td>
-                    {show('definition') ? <td className="muted"><div className="clip" title={clean(r.definition)}>{clean(r.definition)}</div></td> : null}
-                    {show('examples') ? <td className="muted"><div className="clip" title={clean(r.examples)}>{clean(r.examples)}</div></td> : null}
-                    {show('status') ? <td><StatusBadge status={r.status} /></td> : null}
-                    {show('lang_comment') ? <td className="muted"><div className="clip" title={r.lang_comment}>{r.lang_comment}</div></td> : null}
-                    {show('comment') ? <td className="muted"><div className="clip" title={clean(r.comment)}>{clean(r.comment)}</div></td> : null}
-                    {show('projects') ? <td>{r.projects.join(', ')}</td> : null}
-                    {show('others') ? <td className="small">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
+                    {show('definition') ? <td className="muted" data-label="Определение">{clean(r.definition) ? <div className="clip" title={clean(r.definition)}>{clean(r.definition)}</div> : null}</td> : null}
+                    {show('examples') ? <td className="muted" data-label="Примеры">{clean(r.examples) ? <div className="clip" title={clean(r.examples)}>{clean(r.examples)}</div> : null}</td> : null}
+                    {show('status') ? <td data-label="Статус"><StatusBadge status={r.status} /></td> : null}
+                    {show('lang_comment') ? <td className="muted" data-label="Комментарий лингвиста">{r.lang_comment ? <div className="clip" title={r.lang_comment}>{r.lang_comment}</div> : null}</td> : null}
+                    {show('comment') ? <td className="muted" data-label="Комментарий">{clean(r.comment) ? <div className="clip" title={clean(r.comment)}>{clean(r.comment)}</div> : null}</td> : null}
+                    {show('projects') ? <td data-label="Проекты">{r.projects.join(', ')}</td> : null}
+                    {show('others') ? <td className="small" data-label="Другие языки">{Object.entries(r.others).map(([l, t]) => <div key={l}><b>{l}</b> {t}</div>)}</td> : null}
                     <td className="nowrap">
-                      {d?.can.approve && (r.status === 'draft' || r.status === 'unchecked') ? <Button small kind="primary" onClick={() => approveRows([r])}>Согласовать</Button> : null}
+                      {d?.can.approve && (r.status === 'draft' || r.status === 'unchecked') ? <Button small onClick={() => approveRows([r])}>Согласовать</Button> : null}
                       {r.live.filter((x) => x.status !== 'draft').slice(0, 1).map((t) => d?.can.approve || d?.can.unchecked
                         ? <Button key={t.id} small kind="link" onClick={() => setModal({ mode: 'edit', row: r, current: t })}>Изменить</Button>
                         : d?.can.type ? <Button key={t.id} small kind="link" onClick={() => setModal({ mode: 'replace', row: r, current: t })}>Заменить</Button> : null)}
@@ -362,7 +365,7 @@ function RequestsTab({ me, lang, langName, reqs }: { me: Me; lang: string; langN
                 <td>{r.warnings.length ? <span className="badge st-draft" title={r.warnings.join('\n')}><Icon name="alert" size={12} /> {r.warnings.length}</span> : null}</td>
                 <td className="nowrap">
                   {r.can_approve ? <>
-                    <Button small kind="primary" onClick={() => approve(r)}>Утвердить</Button>
+                    <Button small onClick={() => approve(r)}>Утвердить</Button>
                     <Button small onClick={() => setReject(r)}>Отклонить</Button>
                   </> : null}
                   {r.can_answer ? <>

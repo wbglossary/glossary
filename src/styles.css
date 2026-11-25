@@ -197,7 +197,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .btn.link:hover { background: none; text-decoration: underline; text-underline-offset: 3px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.google { font-size: 16px; min-height: 52px; width: 100%; }
-.why { font-size: 11px; color: var(--muted); max-width: 240px; line-height: 1.35; }
+.why { font-size: 12px; color: var(--muted); max-width: 240px; line-height: 1.35; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; align-items: center; }
 .row { display: flex; align-items: center; }
 .row.wrap { flex-wrap: wrap; }
@@ -216,7 +216,7 @@ tr:hover .copy, .langblock:hover .copy, td:focus-within .copy, .copy:focus-visib
 .grid td:has(> .copy) { padding-right: 34px; }
 .grid td .copy { position: absolute; top: 7px; right: 6px; margin: 0; background: var(--card); box-shadow: 0 0 0 1px var(--line); }
 .grid td .copy:hover { background: var(--accent-bg); }
-.copied { font-size: 11px; color: var(--green); margin-left: 4px; }
+.copied { font-size: 12px; color: var(--green); margin-left: 4px; }
 
 .msg { display: flex; gap: 10px; border-radius: 14px; padding: 11px 14px; margin: 12px 0; border: 1px solid; align-items: flex-start; }
 .msg-body { flex: 1; }
@@ -282,7 +282,7 @@ td.c-unused { color: var(--muted); }
 .cell-text { display: inline; }
 .cell-input { width: 100%; min-width: 180px; border: 1px solid transparent; background: transparent; padding: 5px 8px; min-height: 0; resize: vertical; border-radius: 8px; }
 .cell-input:hover { border-color: var(--line-strong); background: var(--field); }
-.save-state { font-size: 11px; color: var(--muted); }
+.save-state { font-size: 12px; color: var(--muted); }
 .save-state.error { color: var(--red); }
 .save-state.saved { color: var(--green); }
 .rep, .warn-icon { cursor: help; margin-left: 4px; display: inline-flex; vertical-align: -2px; }
@@ -599,7 +599,7 @@ tr.clickable { cursor: pointer; }
 .work-grid .clip { min-width: 200px; max-width: 320px; -webkit-line-clamp: 2; }
 .work-grid td { vertical-align: top; }
 .work-grid .cell-input { resize: none; overflow: hidden; line-height: 1.4; }
-.save-state { display: inline-flex; align-items: center; gap: 3px; min-height: 14px; }
+.save-state { display: inline-flex; align-items: center; gap: 3px; min-height: 14px; font-size: 12px; }
 .save-state.typing { color: var(--muted); }
 :root { --approved-cell: #effaf3; --viewonly-bg: #eef4ff; --viewonly-line: #c9daf8; --viewonly-fg: #2f63c4; --need-line: #efb7c0; }
 :root[data-theme="dark"] { --approved-cell: #16291f; --viewonly-bg: #182238; --viewonly-line: #2c3f66; --viewonly-fg: #8fb3ff; --need-line: #6b3442; }
@@ -718,3 +718,87 @@ tr.clickable { cursor: pointer; }
   .help-side { position: static; max-height: none; overflow: visible; }
   .help-side .help-toc { flex-direction: row; flex-wrap: wrap; }
 }
+
+/* ---------- Этап 5: телефон ---------- */
+.top-logo, .tabbar { display: none; }
+@media (max-width: 720px) {
+  .layout { padding: 0 0 calc(70px + env(safe-area-inset-bottom)); gap: 0; }
+  .layout > .side { display: none; }
+  .main { gap: 0; }
+  .top { position: sticky; top: 0; z-index: 20; justify-content: space-between; padding: 8px 12px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .top-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; }
+  .top-logo i { width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #e5357a, #6c2bd9); display: inline-block; }
+  .profile-text { display: none; }
+  .profile-btn { min-height: 44px; }
+  .work { border-radius: 18px 18px 0 0; padding: 18px 14px 40px; box-shadow: none; }
+  h1 { font-size: 26px; }
+  .tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--card); border-top: 1px solid var(--line);
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(20, 8, 45, .08); }
+  .tabbar > a, .tabbar > button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 56px;
+    font: inherit; font-size: 11px; font-weight: 500; color: var(--muted); text-decoration: none; border: none; background: none; border-radius: 12px; cursor: pointer; }
+  .tabbar > .active { color: var(--accent); }
+  .tabbar > .active .tab-ico { background: var(--accent-bg); }
+  .tab-ico { position: relative; display: grid; place-items: center; width: 52px; height: 30px; border-radius: 999px; }
+  .tab-dot { position: absolute; top: -3px; right: 4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: var(--accent);
+    color: var(--on-accent); font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+  .more-back { position: fixed; inset: 0; z-index: 40; background: rgba(20, 8, 45, .35); display: flex; align-items: flex-end; animation: fade-in .2s ease; }
+  .more-sheet.side { display: block; position: static; width: 100%; max-height: 80vh; overflow: auto; border-radius: 22px 22px 0 0; padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
+    animation: sheet-up .28s var(--ease); }
+  .more-sheet .nav-group { display: block; }
+  .more-sheet .nav-title { display: block; }
+  .more-sheet a { min-height: 48px; }
+  .more-grip { width: 40px; height: 4px; border-radius: 4px; background: var(--line-strong); margin: 4px auto 10px; }
+  .fb-fab { bottom: calc(76px + env(safe-area-inset-bottom)); right: 14px; }
+  .bulkbar.floating { bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .form-bar { bottom: calc(66px + env(safe-area-inset-bottom)); }
+  /* зоны нажатия не меньше 44px */
+  .btn, .chip, .seg button, .page-tabs button, .act, .icon-btn, select, input:not([type=checkbox]):not([type=radio]) { min-height: 44px; }
+  .chip { padding: 0 14px; }
+  .drawer { top: 0; right: 0; bottom: 0; width: 100vw; border-radius: 0; }
+  .drawer-tools .small { display: none; }
+}
+@keyframes sheet-up { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* таблицы на телефоне — карточками */
+@media (max-width: 720px) {
+  .table-wrap:has(> .cards-sm) { max-height: none; border: none; overflow: visible; background: none; }
+  .grid.cards-sm, .grid.cards-sm tbody { display: block; }
+  .grid.cards-sm thead { display: none; }
+  .grid.cards-sm tr { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); position: relative; }
+  .grid.cards-sm tr.sel { border-color: var(--accent-2); }
+  .grid.cards-sm td { display: block; border: none; padding: 2px 0; position: static !important; background: none; grid-column: 1 / -1; min-width: 0; max-width: none; }
+  .grid.cards-sm td.s0 { position: absolute !important; top: 10px; right: 12px; grid-column: auto; }
+  .grid.cards-sm td.s1 { grid-column: 1 / -1; font-size: 12px; }
+  .grid.cards-sm td.s2 { grid-column: 1 / -1; font-size: 17px; padding-bottom: 6px; }
+  .grid.cards-sm td[data-label]::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+  .grid.cards-sm td[data-label]:empty { display: none; }
+  .grid.cards-sm td.c-need, .grid.cards-sm td.c-draft, .grid.cards-sm td.c-unchecked, .grid.cards-sm td.c-approved { border-radius: 10px; padding: 4px 10px 8px; margin-top: 4px; }
+  .grid.cards-sm td.c-need { background: var(--need-cell); } .grid.cards-sm td.c-draft { background: var(--draft-cell); }
+  .grid.cards-sm td.c-unchecked { background: var(--unchecked-cell); } .work-grid.cards-sm td.c-approved { background: var(--approved-cell); }
+  .grid.cards-sm .clip { max-width: none; min-width: 0; }
+  .grid.cards-sm td:last-child:not([data-label]) { padding-top: 6px; }
+}
+@media (max-width: 720px) {
+  .grid.cards-sm td.s0 { left: auto !important; }
+  .grid.cards-sm td, .grid.cards-sm td.s1, .grid.cards-sm td.s2 { box-shadow: none !important; }
+  .grid.cards-sm td.s1::before, .grid.cards-sm td.s2::after, .grid.cards-sm td.s1::after { display: none; }
+  .more-sheet.side { align-self: flex-end; margin-top: auto; }
+}
+
+
+/* ---------- Этап 5: тосты, переходы, приветствие ---------- */
+.toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+.toast { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--card);
+  font-size: 14px; font-weight: 500; box-shadow: 0 10px 30px rgba(20, 8, 45, .25); animation: toast-in .25s var(--ease); }
+.toast.ok svg { color: #6ee7a0; }
+@keyframes toast-in { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (max-width: 720px) { .toasts { bottom: calc(84px + env(safe-area-inset-bottom)); } }
+.work { animation: page-in .28s var(--ease); }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .work, .toast, .more-back, .more-sheet.side { animation: none; } }
+.greet { margin: -4px 0 18px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.greet b { color: var(--text); font-size: 17px; }
+.greet a { color: var(--accent); }
+.perm-note { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.bulkbar .why { max-width: 140px; }
