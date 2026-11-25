@@ -79,8 +79,18 @@ if (preview) {
   await sql.end(); process.exit(0);
 }
 
-const targets = only ? people.filter((p) => p.email.toLowerCase() === only) : people;
-if (!targets.length) { console.log('Нет такого человека среди переводчиков, валидаторов и менеджеров.'); await sql.end(); process.exit(1); }
+// Проверка на одном человеке — любая роль, хоть владелец: письмо придёт, даже если у него нет задач
+const targets = only
+  ? await sql<Person[]>`select id, email, name, role from profiles where active and lower(email) = ${only}`
+  : people;
+if (!targets.length) {
+  console.log(only
+    ? 'В глоссарии нет включённого пользователя с такой почтой. Проверьте, что почта вписана так же, как в «Администрировании».'
+    : 'Некому отправлять: нет переводчиков, валидаторов и менеджеров.');
+  await sql.end(); process.exit(1);
+}
+if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) console.log('Почта не настроена: нет секретов GMAIL_USER и GMAIL_APP_PASSWORD — письмо не уйдёт.');
+if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) console.log('Уведомления в браузере не настроены: нет секретов VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY.');
 
 const { default: nodemailer } = await import('nodemailer');
 const mail = process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD
@@ -108,4 +118,5 @@ for (const p of targets) {
   }
 }
 console.log(`Напоминание №${REMINDERS.indexOf(r) + 1}: людей ${targets.length}, писем ${sent}${mail ? '' : ' (почта не настроена)'}, уведомлений ${pushed}${pushOn ? '' : ' (браузер не настроен)'}, ошибок ${failed}, устаревших подписок убрано ${gone}.`);
+if (only && !sent && !pushed) { console.log(failed ? 'Ничего не отправлено: ошибка при отправке. Чаще всего неверный пароль приложения Gmail.' : 'Ничего не отправлено — см. сообщения выше.'); await sql.end(); process.exit(1); }
 await sql.end();
