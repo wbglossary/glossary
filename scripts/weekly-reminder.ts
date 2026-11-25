@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import postgres from 'postgres';
 import { ALL_CLEAR, pickReminder, REMINDERS } from './reminders';
+import { VAPID_PUBLIC as SITE_VAPID_PUBLIC } from '../src/vapid';
 
 if (existsSync('.env.local')) {
   for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
@@ -90,14 +91,24 @@ if (!targets.length) {
   await sql.end(); process.exit(1);
 }
 if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) console.log('Почта не настроена: нет секретов GMAIL_USER и GMAIL_APP_PASSWORD — письмо не уйдёт.');
-if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) console.log('Уведомления в браузере не настроены: нет секретов VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY.');
+if (!process.env.VAPID_PRIVATE_KEY) console.log('Уведомления в браузере не настроены: нет секрета VAPID_PRIVATE_KEY.');
 
 const { default: nodemailer } = await import('nodemailer');
 const mail = process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD
   ? nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD } }) : null;
 const { default: webpush } = await import('web-push');
-const pushOn = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-if (pushOn) webpush.setVapidDetails('mailto:' + (process.env.GMAIL_USER || 'glossary@example.com'), process.env.VAPID_PUBLIC_KEY!, process.env.VAPID_PRIVATE_KEY!);
+// Публичный ключ не секретный — он же зашит в сайт (src/push.tsx); берём его оттуда, чтобы не зависеть от копирования.
+// Секретом остаётся только приватный ключ. Лишние пробелы, кавычки и переносы строк срезаем.
+const clean = (v?: string) => (v ?? '').trim().replace(/^["']|["']$/g, '').replace(/^VAPID_(PUBLIC|PRIVATE)_KEY=/, '').trim();
+const VAPID_PUBLIC = SITE_VAPID_PUBLIC || clean(process.env.VAPID_PUBLIC_KEY);
+let pushOn = !!(VAPID_PUBLIC && clean(process.env.VAPID_PRIVATE_KEY));
+if (pushOn) {
+  try { webpush.setVapidDetails('mailto:' + (process.env.GMAIL_USER || 'glossary@example.com'), VAPID_PUBLIC, clean(process.env.VAPID_PRIVATE_KEY)); }
+  catch (e) {
+    pushOn = false;
+    console.log('Уведомления в браузере пропущены: ключ VAPID_PRIVATE_KEY в секретах GitHub записан неверно (' + (e as Error).message + '). Письма всё равно уйдут.');
+  }
+}
 
 let sent = 0, pushed = 0, failed = 0, gone = 0;
 for (const p of targets) {

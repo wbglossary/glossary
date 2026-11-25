@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { rpc } from './api';
 import { Button } from './ui/kit';
+import { VAPID_PUBLIC } from './vapid';
 
 /** Открытый ключ для уведомлений (закрытый хранится только в GitHub Secrets). */
-const VAPID_PUBLIC = 'BDvHWZHEnLQxYr5aQ1nSRgV1IZotyHxnwQB076llxkUjCbLz5dvtqs8ND6IVSCgi753a61SEAHKN2dzL6j5qQxU';
 const supported = () => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 const toBytes = (b64: string) => {
   const s = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
