@@ -42,6 +42,7 @@ export function PushCard() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const b = browser();
   useEffect(() => {
     if (!supported()) { setState('unsupported'); return; }
@@ -91,26 +92,25 @@ export function PushCard() {
     } catch (e) { setErr('Проверочное уведомление не показалось: ' + ((e as Error).message || e)); }
   };
 
+  const hint = state === 'blocked' ? 'Браузер запретил уведомления для этого сайта. ' + HOW_TO_ALLOW[b]
+    : state === 'unsupported' ? (isIOS()
+      ? 'На iPhone и iPad уведомления работают, только если добавить сайт на экран «Домой»: кнопка «Поделиться» → «На экран «Домой»», потом открыть сайт с этой иконки.'
+      : 'Этот браузер не поддерживает уведомления от сайтов. Откройте глоссарий в Chrome, Edge, Яндекс Браузере, Firefox или Safari.')
+    : 'Раз в неделю — короткое (и смешное) напоминание о ваших терминах. Нажмите «Включить» и разрешите уведомления. ' + HOW_TO_ALLOW[b];
   return (
-    <div className="card push-card">
-      <div>
-        <b>🔔 Напоминания в браузере</b>
-        <div className="muted small">
-          {state === 'on' ? 'Включены в этом браузере. Раз в неделю придёт короткое напоминание о ваших терминах.'
-            : state === 'blocked' ? 'Браузер запретил уведомления для этого сайта. ' + HOW_TO_ALLOW[b]
-            : state === 'unsupported' ? (isIOS()
-              ? 'На iPhone и iPad уведомления работают, только если добавить сайт на экран «Домой»: кнопка «Поделиться» → «На экран «Домой»», потом открыть сайт с этой иконки.'
-              : 'Этот браузер не поддерживает уведомления от сайтов. Откройте глоссарий в Chrome, Edge, Яндекс Браузере, Firefox или Safari.')
-            : 'Раз в неделю — короткое (и смешное) напоминание о ваших терминах.'}
-        </div>
-        {err ? <div className="small" style={{ color: 'var(--red)', marginTop: 4 }}>{err}</div> : null}
-        {note ? <div className="small muted" style={{ marginTop: 4 }}>{note}</div> : null}
+    <div className={`push-bar${state === 'on' ? ' on' : ''}`}>
+      <div className="push-line">
+        <span>🔔 {state === 'on' ? 'Напоминания в браузере включены' : state === 'blocked' ? 'Уведомления в браузере выключены' : 'Напоминания в браузере'}</span>
+        <span className="push-actions">
+          {state === 'off' ? <Button kind="primary" small disabled={busy} onClick={enable}>Включить</Button> : null}
+          {state === 'on' ? <Button small kind="link" disabled={busy} onClick={() => test()}>Проверить</Button> : null}
+          {state === 'on' ? <Button small kind="link" disabled={busy} onClick={disable}>Выключить</Button> : null}
+          {state !== 'on' ? <Button small kind="link" onClick={() => setOpen(!open)}>{open ? 'Скрыть' : 'Как включить'}</Button> : null}
+        </span>
       </div>
-      <div className="row gap">
-        {state === 'off' ? <Button kind="primary" small disabled={busy} onClick={enable}>Включить</Button> : null}
-        {state === 'on' ? <Button small disabled={busy} onClick={() => test()}>Прислать проверочное</Button> : null}
-        {state === 'on' ? <Button small kind="link" disabled={busy} onClick={disable}>Выключить</Button> : null}
-      </div>
+      {open && state !== 'on' ? <div className="muted small push-hint">{hint}</div> : null}
+      {err ? <div className="small" style={{ color: 'var(--red)', marginTop: 4 }}>{err}</div> : null}
+      {note ? <div className="small muted" style={{ marginTop: 4 }}>{note}</div> : null}
     </div>
   );
 }

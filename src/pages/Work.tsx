@@ -163,7 +163,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
               <thead><tr>
                 {canSel ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
-                <th className="s1">Номер</th><th className="s2">Русский термин</th><th className="wide">{lang}</th>
+                <th className="s1">Номер</th><th className="s2">Русский термин</th><th className="wide" title={language?.name}>{lang} — {language?.name}</th>
                 {show('definition') ? <th>Определение</th> : null}
                 {show('examples') ? <th>Примеры</th> : null}
                 {show('status') ? <th>Статус</th> : null}

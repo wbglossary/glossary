@@ -75,7 +75,7 @@ export interface GlossaryItem {
   obsolete_request: { code: string; reason: string } | null;
   forbidden_hit: { lang: string; text: string; good: string }[] | null;
 }
-export interface Page<T> { items: T[]; total: number; page: number; pages: number }
+export interface Page<T> { items: T[]; total: number; page: number; pages: number; all?: number }
 
 export interface Author { name: string; avatar: string | null }
 export interface Forbidden { text: string; note: string }

@@ -3,15 +3,20 @@ import { can, rpc, type GlossaryItem, type Page } from '../api';
 import type { PageProps } from '../router';
 import { Button, Empty, Message, Pager, SearchBox, useAsync, useFillHeight, usePageSize } from '../ui/kit';
 import { TermDrawer } from '../ui/TermDrawer';
-import { DEFAULT_COLS, FIELD_COLS, TermsTable, type FieldCol } from '../ui/TermsTable';
+import { DEFAULT_COLS, FIELD_COLS, SkeletonRows, TermsTable, type FieldCol, type SortKey } from '../ui/TermsTable';
 import { buildGlossaryXlsx, download } from '../exportFile';
+
+/** Быстрые фильтры по статусу выбранного языка */
+const MODES: [string, string][] = [['any', 'Все'], ['missing', 'Нет перевода'], ['has', 'Есть перевод'], ['need', 'Нужен перевод'], ['draft', 'Черновик'],
+  ['unchecked', 'Без проверки'], ['approved', 'Согласовано'], ['unused', 'Не актуально'], ['optional', 'По желанию']];
 
 export function GlossaryPage({ me, route, reloadMe }: PageProps) {
   const active = me.languages.filter((l) => l.active);
   const [q, setQ] = useState('');
   const [project, setProject] = useState<number | null>(null);
   const [lang, setLang] = useState(route.params.get('lang') ?? '');
-  const [mode, setMode] = useState<'any' | 'has' | 'missing'>((route.params.get('mode') as 'missing') ?? 'any');
+  const [mode, setMode] = useState<string>(route.params.get('mode') ?? 'any');
+  const [sort, setSort] = useState<SortKey>('ru');
   const dupes = route.params.get('dupes') === '1';
   const [page, setPage] = useState(1);
   const [size, setSize] = usePageSize();
@@ -35,8 +40,8 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
 
   const { data, error, loading, reload } = useAsync(
     () => rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any', p_page: page, p_size: size, p_dupes: dupes,
-      p_hide_unused: hideUnused ? (myLangs.length ? myLangs : shown) : null }),
-    [q, project, lang, mode, page, dupes, size, hideUnused, shown.join(',')]
+      p_hide_unused: hideUnused ? (myLangs.length ? myLangs : shown) : null, p_sort: sort }),
+    [q, project, lang, mode, page, dupes, size, hideUnused, shown.join(','), sort]
   );
   const cols = (me.prefs.cols ?? DEFAULT_COLS).filter((c): c is FieldCol => FIELD_COLS.some((f) => f.key === c));
   const [saving, setSaving] = useState(false);
@@ -50,13 +55,22 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
     setDl(true); setBulkMsg(null);
     try {
       const all = await rpc<Page<GlossaryItem>>('glossary_page', { p_q: q || null, p_project: project, p_lang: lang || null, p_mode: lang ? mode : 'any',
-        p_page: 1, p_size: 5000, p_dupes: dupes, p_hide_unused: hideUnused ? (myLangs.length ? myLangs : shown) : null });
+        p_page: 1, p_size: 5000, p_dupes: dupes, p_hide_unused: hideUnused ? (myLangs.length ? myLangs : shown) : null, p_sort: sort });
       const fields = FIELD_COLS.filter((f) => cols.includes(f.key) && f.key !== 'lang_comment').map((f) => ({ key: f.key, label: f.label }));
       const d = new Date(); const p2 = (n: number) => String(n).padStart(2, '0');
       const projName = project ? me.projects.find((p) => p.id === project)?.name : '';
-      const name = ['Глоссарий', projName, q ? `«${q}»` : '', lang ? `${lang} ${mode === 'has' ? 'есть' : 'нет'}` : '', `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`].filter(Boolean).join(' — ');
+      const name = ['Глоссарий', projName, q ? `«${q}»` : '', lang && mode !== 'any' ? `${lang} ${MODES.find((m) => m[0] === mode)?.[1] ?? ''}` : '', `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`].filter(Boolean).join(' — ');
       download(await buildGlossaryXlsx(all.items, fields, shown, cols.includes('lang_comment')), `${name}.xlsx`);
       setBulkMsg({ kind: 'ok', text: `Скачано терминов: ${all.items.length}.` });
+    } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setDl(false); }
+  };
+  const downloadSelected = async () => {
+    setDl(true); setBulkMsg(null);
+    try {
+      const fields = FIELD_COLS.filter((f) => cols.includes(f.key) && f.key !== 'lang_comment').map((f) => ({ key: f.key, label: f.label }));
+      const items = (data?.items ?? []).filter((x) => sel.includes(x.id));
+      download(await buildGlossaryXlsx(items, fields, shown, cols.includes('lang_comment')), `Глоссарий — выбранные ${items.length}.xlsx`);
+      setBulkMsg({ kind: 'ok', text: `Скачано терминов: ${items.length}.` });
     } catch (e) { setBulkMsg({ kind: 'error', text: (e as Error).message }); } finally { setDl(false); }
   };
   const toggle = (list: string[], key: string, on: boolean) => (on ? [...list, key] : list.filter((x) => x !== key));
@@ -92,29 +106,47 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
       <h1>Глоссарий{dupes ? <span className="muted"> · одинаковые русские термины</span> : null}</h1>
       <div className="toolbar">
         <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} />
-        <select value={project ?? ''} onChange={(e) => { setProject(e.target.value ? Number(e.target.value) : null); setPage(1); }}>
+        <select value={project ?? ''} onChange={(e) => { setProject(e.target.value ? Number(e.target.value) : null); setPage(1); }} aria-label="Проект">
           <option value="">Все проекты</option>
           {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.closed ? ' (закрыт)' : ''}</option>)}
         </select>
-        <select value={lang} onChange={(e) => { setLang(e.target.value); setPage(1); if (!e.target.value) setMode('any'); else if (mode === 'any') setMode('missing'); }}>
+        <select value={lang} onChange={(e) => { setLang(e.target.value); setPage(1); if (!e.target.value) setMode('any'); }} aria-label="Язык для фильтра">
           <option value="">Язык: любой</option>
           {active.map((l) => <option key={l.code} value={l.code}>{l.code} — {l.name}</option>)}
         </select>
-        {lang ? (
-          <select value={mode} onChange={(e) => { setMode(e.target.value as typeof mode); setPage(1); }}>
-            <option value="missing">нет перевода</option>
-            <option value="has">есть перевод</option>
-          </select>
-        ) : null}
         <Button onClick={() => setChooser(!chooser)}>{chooser ? 'Скрыть настройку' : 'Столбцы…'}</Button>
-        <span style={{ flex: 1 }} />
-        <Button disabled={dl} onClick={downloadShown}>{dl ? 'Готовлю…' : '⬇ Скачать (.xlsx)'}</Button>
         {canHide ? (
           <label className="small" title={myLangs.length ? '' : 'Скрываются термины, которые «не актуально» для всех показанных языков'}>
             <input type="checkbox" checked={hideUnused} disabled={saving}
               onChange={(e) => savePrefs({ hide_unused: e.target.checked })} /> Скрыть «не актуально»{myLangs.length ? ` (${myLangs.join(', ')})` : ''}</label>
         ) : null}
         {dupes ? <a href="#/glossary">показать все термины</a> : null}
+      </div>
+      {/* быстрые фильтры по статусу языка */}
+      <div className="chips" role="group" aria-label="Статус перевода">
+        {lang ? MODES.map(([k, label]) => (
+          <button key={k} className={`chip${mode === k ? ' on' : ''}`} aria-pressed={mode === k} onClick={() => { setMode(k); setPage(1); }}>{label}</button>
+        )) : <span className="muted small">Выберите язык — появятся быстрые фильтры: без перевода, черновики, «не актуально»…</span>}
+      </div>
+      <div className="results-bar">
+        <span className="results-count">{data ? <>Найдено <b>{data.total.toLocaleString('ru-RU')}</b> из {data.all?.toLocaleString('ru-RU') ?? '…'}</> : 'Ищу…'}</span>
+        <select value={sort} onChange={(e) => { setSort(e.target.value as SortKey); setPage(1); }} aria-label="Сортировка" className="small-select">
+          <option value="ru">По алфавиту А→Я</option>
+          <option value="-ru">По алфавиту Я→А</option>
+          <option value="tb">По номеру ↑</option>
+          <option value="-tb">По номеру ↓</option>
+          <option value="new">Сначала новые</option>
+          <option value="updated">Недавно изменённые</option>
+        </select>
+        <span className="seg pager-size" aria-label="Сколько показывать">
+          <button className={size !== 100 ? 'on' : ''} onClick={() => { setSize(true); setPage(1); }}>Все сразу</button>
+          <button className={size === 100 ? 'on' : ''} onClick={() => { setSize(false); setPage(1); }}>По 100</button>
+        </span>
+        <span style={{ flex: 1 }} />
+        <span className="dl-box">
+          <Button kind="primary" small disabled={dl || !data?.total} onClick={downloadShown}>{dl ? 'Готовлю…' : `⬇ Скачать ${data ? data.total.toLocaleString('ru-RU') : ''} (.xlsx)`}</Button>
+          <span className="muted small">найденные, со столбцами как на экране</span>
+        </span>
       </div>
       {chooser ? (
         <div className="card colpick">
@@ -144,8 +176,9 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
       ) : null}
       {bulkMsg ? <Message kind={bulkMsg.kind} onClose={() => setBulkMsg(null)}>{bulkMsg.text}</Message> : null}
       {bulk && sel.length ? (
-        <div className="bulkbar">
-          <b>Отмечено: {sel.length}</b>
+        <div className="bulkbar floating" role="region" aria-label="Действия с отмеченными терминами">
+          <b>Выбрано: {sel.length}</b>
+          <Button small disabled={dl} onClick={downloadSelected}>⬇ Скачать выбранные</Button>
           <div className="checks" role="group" aria-label="Проекты">{me.projects.map((p) => (
             <label key={p.id}><input type="checkbox" checked={bulkProjects.includes(p.id)}
               onChange={(e) => setBulkProjects(e.target.checked ? [...bulkProjects, p.id] : bulkProjects.filter((x) => x !== p.id))} /> {p.name}{p.closed ? ' (закрыт)' : ''}</label>
@@ -167,12 +200,12 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
       ) : null}
       {error ? <Message kind="error">{error}</Message> : null}
       <div className="table-wrap" ref={wrap}>
-        {data ? <TermsTable me={me} items={data.items} langs={shown} cols={cols} openId={open} onOpen={setOpen}
-          selected={bulk ? sel : undefined} onSelect={bulk ? setSel : undefined} /> : null}
-        {!loading && data && !data.items.length ? <Empty>Ничего не найдено.</Empty> : null}
-        {loading ? <div className="empty">Загрузка…</div> : null}
+        {data ? <div className={loading ? 'reloading' : ''}><TermsTable me={me} items={data.items} langs={shown} cols={cols} openId={open} onOpen={setOpen}
+          selected={bulk ? sel : undefined} onSelect={bulk ? setSel : undefined} q={q} sort={sort} onSort={(s2) => { setSort(s2); setPage(1); }} /></div> : null}
+        {!data && loading ? <SkeletonRows cols={4 + shown.length} /> : null}
+        {!loading && data && !data.items.length ? <Empty>Ничего не найдено. Попробуйте другое слово или снимите фильтры.</Empty> : null}
       </div>
-      {data ? <Pager page={data.page} pages={data.pages} total={data.total} onPage={setPage} size={size} onSize={(a) => { setSize(a); setPage(1); }} /> : null}
+      {data && data.pages > 1 ? <Pager page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
       <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={reload} />
     </div>
   );

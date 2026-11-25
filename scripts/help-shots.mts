@@ -140,13 +140,11 @@ try {
 
   // 4б. Инструменты глоссария: скрыть «не актуально», скачать, все сразу
   await go('home'); await go('glossary');
-  await mark(['text:⬇ Скачать', '.toolbar label.small']);
-  await shot('glossary-tools', { x: 250, y: 60, w: 1050, h: 200 }, 0);
+  await js(`const s = document.querySelector('select[aria-label="Язык для фильтра"]'); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(s, 'EN'); s.dispatchEvent(new Event('change', { bubbles: true }));`);
+  await sleep(1200);
+  await mark(['.chips', '.results-count', '.pager-size', '.dl-box .btn']);
+  await shot('glossary-tools', { x: 250, y: 60, w: 1050, h: 330 }, 0);
   await js(`document.querySelectorAll('.hs-badge').forEach((e) => e.remove()); document.querySelectorAll('.hs-mark').forEach((e) => e.classList.remove('hs-mark'));`);
-  await js(`document.querySelector('.pager').scrollIntoView({ block: 'center' })`); await sleep(300);
-  await mark(['.pager-size']);
-  const pg = await js(`const b = document.querySelector('.pager').getBoundingClientRect(); return { x: b.left + scrollX, y: b.top + scrollY, w: Math.min(b.width, 700), h: b.height };`);
-  await shot('pager', pg, 16);
 
   // 5. Переводчик: вписать перевод
   await go('work?tab=mine&status=need', 'en');
@@ -209,7 +207,7 @@ try {
   await js(`const s = document.querySelector('.bulk-unused select'); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(s, s.options[1].value); s.dispatchEvent(new Event('change', { bubbles: true }));`);
   await sleep(300);
   await mark(['.bulk-unused select', 'text:Не актуально для языка']);
-  await shot('bulk-unused', { x: 250, y: 60, w: 1050, h: 330 }, 0);
+  await shot('bulk-unused', '.bulkbar.floating', 10);
 
   // 11. Загрузка переводов
   await go('import');

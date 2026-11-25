@@ -487,9 +487,13 @@ create or replace function lang_cells(p_term int) returns jsonb language sql sta
 $$;
 
 drop function if exists glossary_page(text, integer, text, text, integer, integer, boolean);
+drop function if exists glossary_page(text, integer, text, text, integer, integer, boolean, text[]);
+-- p_mode: any | has | missing | need | optional | draft | unchecked | approved | unused (статус языка p_lang)
+-- p_sort: ru | -ru | tb | -tb | new (сначала новые) | updated (недавно изменённые)
 -- p_hide_unused: скрыть термины, которые «не актуально» для всех этих языков (свои языки человека или показанные столбцы)
 create or replace function glossary_page(p_q text default null, p_project int default null, p_lang text default null,
-  p_mode text default 'any', p_page int default 1, p_size int default 100, p_dupes boolean default false, p_hide_unused text[] default null) returns jsonb
+  p_mode text default 'any', p_page int default 1, p_size int default 100, p_dupes boolean default false, p_hide_unused text[] default null,
+  p_sort text default 'ru') returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare u profiles := app_profile(); v_total int; v_items jsonb; v_size int := least(greatest(p_size, 10), 5000);
 begin
@@ -497,15 +501,20 @@ begin
     select t.*, search_rank(t, p_q) as rnk from terms t
      where t.status = 'active'
        and (p_project is null or exists (select 1 from term_projects tp where tp.term_id = t.id and tp.project_id = p_project))
-       and (p_mode = 'any' or p_lang is null or
-            (p_mode = 'has') = exists (select 1 from translations x where x.term_id = t.id and x.lang = p_lang and x.status in ('approved','unchecked')))
-       and (cardinality(coalesce(p_hide_unused, '{}')) = 0
+       and (p_mode = 'any' or p_lang is null
+            or (p_mode in ('has','missing') and (p_mode = 'has') = exists (select 1 from translations x where x.term_id = t.id and x.lang = p_lang and x.status in ('approved','unchecked')))
+            or (p_mode not in ('has','missing') and lang_status(t.id, p_lang) = p_mode))
+       and (p_mode = 'unused' or cardinality(coalesce(p_hide_unused, '{}')) = 0
             -- скрываем, только если термин «не актуально» для всех этих языков
             or exists (select 1 from unnest(p_hide_unused) hl
                         where not coalesce((select tl.unused from term_langs tl where tl.term_id = t.id and tl.lang = hl), false)))
        and (not p_dupes or exists (select 1 from terms d where d.status = 'active' and d.ru_norm = t.ru_norm and ru_case_key(d.ru) = ru_case_key(t.ru) and d.id <> t.id))
        and search_match(t, p_q)
-  ), pg as (select * from base order by rnk, lower(ru), tb limit v_size offset (greatest(p_page, 1) - 1) * v_size)
+  ), pg as (select * from base order by rnk,
+      case when p_sort = 'new' then -extract(epoch from created_at) when p_sort = 'updated' then -extract(epoch from updated_at) end,
+      case when p_sort = 'tb' then tb end, case when p_sort = '-tb' then tb end desc,
+      case when p_sort = '-ru' then lower(ru) end desc, lower(ru), tb
+    limit v_size offset (greatest(p_page, 1) - 1) * v_size)
   select (select count(*) from base), coalesce(jsonb_agg(jsonb_build_object(
       'id', pg.id, 'tb', pg.tb, 'ru', pg.ru, 'version', pg.version,
       'definition', pg.definition, 'examples', pg.examples, 'comment', pg.comment,
@@ -517,9 +526,13 @@ begin
                where r.term_id = pg.id and r.type = 'obsolete' and r.status = 'pending' limit 1),
       'forbidden_hit', case when norm_term(p_q) <> '' then (select jsonb_agg(jsonb_build_object('lang', tl.lang, 'text', f->>'text', 'good', live_text(pg.id, tl.lang)))
                from term_langs tl, jsonb_array_elements(tl.forbidden) f where tl.term_id = pg.id and norm_term(f->>'text') like '%' || norm_term(p_q) || '%') end
-    ) order by pg.rnk, lower(pg.ru), pg.tb), '[]')
+    ) order by pg.rnk,
+      case when p_sort = 'new' then -extract(epoch from pg.created_at) when p_sort = 'updated' then -extract(epoch from pg.updated_at) end,
+      case when p_sort = 'tb' then pg.tb end, case when p_sort = '-tb' then pg.tb end desc,
+      case when p_sort = '-ru' then lower(pg.ru) end desc, lower(pg.ru), pg.tb), '[]')
   into v_total, v_items from pg;
-  return jsonb_build_object('items', v_items, 'total', v_total, 'page', greatest(p_page, 1), 'pages', greatest(1, ceil(v_total::numeric / v_size)));
+  return jsonb_build_object('items', v_items, 'total', v_total, 'page', greatest(p_page, 1), 'pages', greatest(1, ceil(v_total::numeric / v_size)),
+    'all', (select count(*) from terms where status = 'active'));
 end $$;
 
 create or replace function recent_terms(p_limit int default 10) returns jsonb
@@ -2070,7 +2083,7 @@ declare f text;
 begin
   foreach f in array array[
     'me()', 'set_prefs(jsonb)', 'set_avatar(text)', 'dashboard()',
-    'glossary_page(text, integer, text, text, integer, integer, boolean, text[])', 'recent_terms(integer)', 'term_card(integer, text)',
+    'glossary_page(text, integer, text, text, integer, integer, boolean, text[], text)', 'recent_terms(integer)', 'term_card(integer, text)',
     'similar_terms(text)', 'check_duplicates(text, jsonb, integer)', 'submit_request(jsonb)', 'set_request_translation(integer, text, text)',
     'edit_request(integer, jsonb)', 'approve_request(integer, integer, boolean)', 'reject_request(integer, integer)',
     'lang_requests(text)', 'my_requests()', 'all_requests(text, text)', 'add_request_comment(integer, text)', 'list_request_comments(integer)',
