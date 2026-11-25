@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { fmtDate, rpc, type Role } from '../api';
 import type { PageProps } from '../router';
 import { Avatar } from '../ui/Avatar';
-import { Button, Message, useAsync } from '../ui/kit';
+import { Button, Empty, Message, SearchBox, useAsync } from '../ui/kit';
+import { HelpLink } from '../ui/HelpLink';
+import { Icon } from '../ui/Icon';
 
 type LangRole = { code: string; role: 'translator' | 'validator' };
 interface AUser { id: number; email: string; name: string; role: Role; role_label: string; lang: string | null; langs: LangRole[]; contractor_no: number | null; avatar: string; active: boolean; last_seen: string | null; joined: boolean }
@@ -15,7 +17,6 @@ const ROLES: { v: Role; l: string }[] = [
 ];
 const needsLang = (r: Role) => r === 'validator' || r === 'translator';
 const formRole = (r: Role): Role => (r === 'validator' ? 'translator' : r);
-const langsDesc = (ls: LangRole[]) => ls.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ');
 /** Что отправить в базу: роль-сводка и список языков с ролями */
 const payload = (role: Role, langs: LangRole[]) => needsLang(role)
   ? { p_role: langs.some((l) => l.role === 'validator') ? 'validator' : 'translator', p_lang: null, p_langs: langs.filter((l) => l.code).map((l) => ({ lang: l.code, role: l.role })) }
@@ -54,11 +55,11 @@ export function AdminPage({ me, reloadMe }: PageProps) {
   };
   return (
     <div>
-      <h1>Администрирование</h1>
-      <div className="seg">
-        <button className={tab === 'users' ? 'on' : ''} onClick={() => setTab('users')}>Пользователи</button>
-        <button className={tab === 'langs' ? 'on' : ''} onClick={() => setTab('langs')}>Языки</button>
-        <button className={tab === 'projects' ? 'on' : ''} onClick={() => setTab('projects')}>Проекты</button>
+      <h1>Администрирование <HelpLink topics={['Добавить человека']} /></h1>
+      <div className="page-tabs" role="tablist">
+        {([['users', 'Пользователи'], ['langs', 'Языки'], ['projects', 'Проекты']] as const).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
+        ))}
       </div>
       {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
       {tab === 'users' ? <Users me={me} act={act} /> : tab === 'langs' ? <Langs act={act} /> : <Projects me={me} act={act} />}
@@ -74,10 +75,38 @@ function Users({ me, act }: { me: PageProps['me']; act: Act }) {
   const [form, setForm] = useState(emptyForm);
   const [edit, setEdit] = useState<(AUser & { formLangs: LangRole[] }) | null>(null);
   const langs = me.languages.filter((l) => l.active);
+  const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState('');
+  const [roleF, setRoleF] = useState('');
+  const ql = q.trim().toLowerCase();
+  const users = (data ?? []).filter((u) => (!ql || u.name.toLowerCase().includes(ql) || u.email.toLowerCase().includes(ql) || u.langs.some((l) => l.code.toLowerCase() === ql))
+    && (!roleF || (roleF === 'off' ? !u.active : u.role === roleF)));
   return (
     <>
+      <div className="toolbar">
+        <SearchBox value={q} onChange={setQ} placeholder="Имя, почта или язык (EN)" />
+        <select value={roleF} onChange={(e) => setRoleF(e.target.value)} aria-label="Роль">
+          <option value="">Все роли</option>
+          <option value="owner">Владельцы</option><option value="manager">Менеджеры</option>
+          <option value="validator">Валидаторы</option><option value="translator">Переводчики</option>
+          <option value="contractor">Подрядчики</option><option value="reader">Читатели</option>
+          <option value="off">Отключённые</option>
+        </select>
+        <span className="muted small">{data ? `Показано ${users.length} из ${data.length}` : ''}</span>
+        <span style={{ flex: 1 }} />
+        <Button kind="primary" onClick={() => setAdding(!adding)}><Icon name={adding ? 'close' : 'plus'} size={15} /> {adding ? 'Скрыть форму' : 'Добавить человека'}</Button>
+      </div>
+      {adding ? (
       <div className="card">
         <h3>Добавить человека</h3>
+        <div className="two-steps">
+          <Icon name="alert" size={18} />
+          <div><b>Нужно два шага, иначе человек не сможет войти:</b>
+            <ol>
+              <li>Google Cloud → Google Auth Platform → Audience → <b>Test users → Add users</b> — впишите почту.</li>
+              <li>Здесь: та же почта, имя и роль.</li>
+            </ol></div>
+        </div>
         <div className="row gap wrap">
           <label className="field"><span>Почта Google</span><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
           <label className="field"><span>Имя</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
@@ -90,14 +119,17 @@ function Users({ me, act }: { me: PageProps['me']; act: Act }) {
           'Человек добавлен. Пока приложение Google в тестовом режиме, добавьте эту почту и в «Test users» Google.', () => { setForm(emptyForm); reload(); })}>Добавить</Button>
         <p className="muted small">Подрядчик получает постоянный номер («Подрядчик 3») и видит остальных только по роли и языку.</p>
       </div>
+      ) : null}
       <div className="table-wrap">
         <table className="grid">
           <thead><tr><th /><th>Имя</th><th>Почта</th><th>Роль и языки</th><th>Входил</th><th /></tr></thead>
-          <tbody>{data?.map((u) => (
+          <tbody>{users.map((u) => (
             <tr key={u.id} className={u.active ? '' : 'off'}>
               <td><Avatar name={u.avatar} size={28} /></td>
               <td><b>{u.name}</b>{u.contractor_no ? <span className="muted"> · Подрядчик {u.contractor_no}</span> : null}{u.active ? null : <span className="badge st-unused">отключён</span>}</td>
-              <td>{u.email}</td><td>{u.langs.length ? langsDesc(u.langs) : u.role_label}</td>
+              <td>{u.email}</td><td>{u.langs.length
+                ? <span className="role-list">{u.langs.map((l) => <span key={l.code} className={`role-badge r-${l.role}`}>{l.role === 'validator' ? 'Валидатор' : 'Переводчик'} {l.code}</span>)}</span>
+                : <span className={`role-badge r-${u.role}`}>{u.role_label}</span>}</td>
               <td className="small">{u.last_seen ? fmtDate(u.last_seen) : u.joined ? 'да' : 'ещё не входил'}</td>
               <td className="nowrap">
                 <Button small onClick={() => setEdit({ ...u, role: formRole(u.role), formLangs: u.langs.length ? u.langs : [{ code: '', role: 'translator' }] })}>Изменить</Button>
@@ -107,6 +139,7 @@ function Users({ me, act }: { me: PageProps['me']; act: Act }) {
             </tr>
           ))}</tbody>
         </table>
+        {data && !users.length ? <Empty icon="search">Никого не нашлось. Поменяйте поиск или роль.</Empty> : null}
       </div>
       {edit ? (
         <div className="modal-back" onClick={() => setEdit(null)}>

@@ -2,7 +2,10 @@ import { Fragment, useState } from 'react';
 import { rpc, type Language } from '../api';
 import type { PageProps } from '../router';
 import { Button, Message } from '../ui/kit';
+import { HelpLink } from '../ui/HelpLink';
 import { readXlsxRaw } from '../xlsxRaw';
+import { buildImportTemplate, download } from '../exportFile';
+import { Icon } from '../ui/Icon';
 
 /**
  * Загрузка готовых переводов от подрядчиков: одна таблица, сколько угодно языков.
@@ -108,6 +111,7 @@ export function ImportTranslationsPage({ me }: PageProps) {
   const [done, setDone] = useState(false);
   const [onlyFailed, setOnlyFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [drag, setDrag] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error' | 'warn'; text: string } | null>(null);
   const sheet = sheets[sheetIx];
 
@@ -179,6 +183,7 @@ export function ImportTranslationsPage({ me }: PageProps) {
   const toAdd = check ? check.reduce((n, r) => n + Object.values(r.langs).filter((l) => l.status === 'add' || l.status === 'to_request').length, 0) : 0;
   const toNew = check ? check.filter((r) => r.match === 'new' || r.match === 'direct' || r.match === 'from_request').length : 0;
   const failedRows = check ? check.filter((r) => whyNot(r).length).length : 0;
+  const unchanged = check ? check.filter((r) => !whyNot(r).length && !Object.values(r.langs).some((l) => l.status === 'add' || l.status === 'to_request' || l.status === 'new')).length : 0;
   const byMatch = check ? (Object.keys(MATCH) as Row['match'][]).map((k) => [k, check.filter((r) => r.match === k).length] as const) : [];
   const perLang = check ? Object.entries(check.reduce<Record<string, { add: number; as: string }>>((acc, r) => {
     Object.entries(r.langs).forEach(([c, l]) => { acc[c] ??= { add: 0, as: l.as }; if (l.status === 'add' || l.status === 'new' || l.status === 'to_request') acc[c].add++; });
@@ -187,17 +192,39 @@ export function ImportTranslationsPage({ me }: PageProps) {
 
   return (
     <div className="import-page">
-      <h1>Загрузка терминов и переводов</h1>
+      <h1>Загрузка терминов и переводов <HelpLink topics={['Загрузить таблицу']} /></h1>
       <p className="muted">Таблица из Smartcat или от подрядчика: русский термин, определение и столбцы с переводами. То, что уже есть, сайт пропустит. Новые переводы и новые термины уйдут валидаторам на проверку.</p>
+      <ol className="stepper" aria-label="Шаги">
+        {['Файл', 'Проверка', 'Результат'].map((t, i) => {
+          const cur = done ? 2 : check ? 1 : 0;
+          return <li key={t} className={i === cur ? 'on' : i < cur ? 'past' : ''} aria-current={i === cur ? 'step' : undefined}><span>{i < cur ? <Icon name="check" size={13} /> : i + 1}</span>{t}</li>;
+        })}
+      </ol>
       {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
       <div className="card">
-        <div className="filepick">
-          <label className="btn primary">
-            Выбрать таблицу .xlsx
-            <input type="file" accept=".xlsx" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ''; }} />
-          </label>
-          <span className={fileName ? '' : 'muted'}>{fileName || 'Файл не выбран'}</span>
+        <div className={`dropzone${drag ? ' over' : ''}${fileName ? ' has' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); }}>
+          <span className="dz-ico"><Icon name="upload" size={22} /></span>
+          <div className="filepick">
+            <label className="btn primary">
+              Выбрать таблицу .xlsx
+              <input type="file" accept=".xlsx" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ''; }} />
+            </label>
+            <span className={fileName ? '' : 'muted'}>{fileName || 'или перетащите файл сюда'}</span>
+          </div>
         </div>
+        {!sheet ? (
+          <details className="more-info">
+            <summary>Как должна выглядеть таблица</summary>
+            <p className="small muted">Первая строка — названия столбцов. Порядок любой, лишние столбцы можно оставить — сайт их пропустит.</p>
+            <table className="grid compact example-table">
+              <thead><tr><th>Русский термин</th><th>Определение</th><th>EN</th><th>KA</th></tr></thead>
+              <tbody><tr><td>Пункт выдачи</td><td>Место, где покупатель забирает заказ.</td><td>Pick-up point</td><td>…</td></tr></tbody>
+            </table>
+            <Button small onClick={async () => download(await buildImportTemplate(langs), 'Шаблон загрузки терминов.xlsx')}><Icon name="download" size={14} /> Скачать шаблон .xlsx</Button>
+          </details>
+        ) : null}
         {sheets.length > 1 ? (
           <label className="field"><span>Лист</span>
             <select value={sheetIx} onChange={(e) => pickSheet(sheets, Number(e.target.value))}>
@@ -241,13 +268,23 @@ export function ImportTranslationsPage({ me }: PageProps) {
       {check ? (
         <>
           <h2>{done ? 'Результат загрузки' : 'Что получится'}</h2>
-          <div className="row gap wrap">
-            {byMatch.filter(([, n]) => n).map(([k, n]) => <span key={k} className={`badge ${MATCH[k].cls}`}>{MATCH[k].total}: {n}</span>)}
+          <div className="tiles">
+            <div className="tile ok"><b>{toAdd}</b><span>{done ? 'переводов добавлено' : 'переводов добавится'}</span></div>
+            <div className="tile new"><b>{toNew}</b><span>новых терминов — на проверку</span></div>
+            <div className="tile skip"><b>{unchanged}</b><span>строк без изменений — уже есть</span></div>
+            <button type="button" className={`tile err${onlyFailed ? ' on' : ''}`} disabled={!failedRows} aria-pressed={onlyFailed} onClick={() => setOnlyFailed(!onlyFailed)}
+              title={failedRows ? 'Нажмите, чтобы показать только эти строки' : ''}>
+              <b>{failedRows}</b><span>{failedRows ? (onlyFailed ? 'показаны только ошибки — нажмите, чтобы показать всё' : 'с ошибками — нажмите, чтобы показать только их') : 'ошибок нет'}</span></button>
           </div>
-          <div className="row gap wrap" style={{ marginTop: 8 }}>
-            {perLang.map(([c, x]) => <span key={c} className="badge">{c}: новых переводов {x.add}</span>)}
-          </div>
-          <label className="small" style={{ display: 'block', marginTop: 10 }}><input type="checkbox" checked={onlyFailed} onChange={(e) => setOnlyFailed(e.target.checked)} /> Показать только то, что не {done ? 'загрузилось' : 'загрузится'} ({failedRows})</label>
+          <details className="more-info">
+            <summary>Подробнее по совпадениям и языкам</summary>
+            <div className="row gap wrap" style={{ marginTop: 8 }}>
+              {byMatch.filter(([, n]) => n).map(([k, n]) => <span key={k} className={`badge ${MATCH[k].cls}`}>{MATCH[k].total}: {n}</span>)}
+            </div>
+            <div className="row gap wrap" style={{ marginTop: 8 }}>
+              {perLang.map(([c, x]) => <span key={c} className="badge">{c}: новых переводов {x.add}</span>)}
+            </div>
+          </details>
           {done ? null : <div className="actions">
             <Button kind="primary" disabled={busy || !(toAdd + toNew)} why={!(toAdd + toNew) ? 'Нечего добавлять — всё уже есть' : undefined} onClick={() => run(true)}>
               Загрузить{toNew ? ` ${toNew} нов. терм.` : ''}{toNew && toAdd ? ' и' : ''}{toAdd ? ` ${toAdd} перев.` : ''}</Button>

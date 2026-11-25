@@ -1,7 +1,8 @@
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { ROLE_LABELS, type LangStatus, type Role } from '../api';
 import { go, type PageProps } from '../router';
 import { Button, StatusBadge } from '../ui/kit';
+import { Icon } from '../ui/Icon';
 
 /**
  * Инструкции по ролям — очень коротко и с картинками. Разметка текста:
@@ -93,7 +94,9 @@ const WITHDRAW = `Передумали? Заявку можно **отозват
 
 ![1 — отозвать](withdraw)`;
 
-const LOG = `**«Журнал изменений»** в меню — кто, что и когда менял. Нажмите на номер термина — откроется его карточка.`;
+const LOG = `**«Журнал изменений»** в меню — кто, что и когда менял, по дням. Красным — как было, зелёным — как стало. Нажмите на номер термина — откроется его карточка.
+
+Наверху можно выбрать период: **«Сегодня»**, **«7 дней»**, **«30 дней»**. Кнопка **«Фильтры»** открывает поиск по человеку, термину, действию и языку, **«Сбросить»** убирает все фильтры.`;
 
 const REMIND = `Раз в неделю сайт присылает короткое (и смешное) напоминание: что ждёт именно вас.
 
@@ -108,12 +111,16 @@ const HOME = `На **Главной** в блоке **«Вас ждут»** — 
 const UPLOAD = `Подойдёт выгрузка из Smartcat или таблица от подрядчика — сразу со всеми языками.
 
 1. Нажмите **«Загрузка терминов»** в меню.
-2. Нажмите **«Выбрать таблицу .xlsx»** и выберите файл.
+2. Нажмите **«Выбрать таблицу .xlsx»** или просто перетащите файл в рамку.
 3. Новые термины для проекта? Отметьте проекты.
 4. Нажмите **«Проверить»** — сайт покажет, что куда попадёт. Пока ничего не сохраняется.
 5. Нажмите **«Загрузить»**.
 
 ![1 — выбрать файл, 2 — проверить, 3 — загрузить](import)
+
+Не знаете, как оформить таблицу? Под рамкой нажмите **«Как должна выглядеть таблица»** — там пример и **шаблон**, который можно скачать.
+
+После проверки сверху видны итоги: сколько переводов добавится, сколько новых терминов и сколько строк с ошибками. Нажмите на плитку с ошибками — останутся только они.
 
 Что делает сайт с каждой строкой:
 - термин и перевод **уже есть** — пропускает;
@@ -138,16 +145,17 @@ const CONTRACTOR_EXPORT = `Нужно отдать подрядчику, что 
 В файле — термины без перевода на эти языки, ячейки для перевода жёлтые. Готовый файл загрузите обратно в **«Загрузку терминов»**.`;
 
 const SMARTCAT = `1. Нажмите **«Выгрузка»** в меню.
-2. Выберите проект и языки.
-3. Нажмите **«Скачать для Smartcat (.xlsx)»**.
+2. **Шаг 1:** выберите проект и языки.
+3. **Шаг 2:** посмотрите, сколько терминов попадёт в файл.
+4. **Шаг 3:** в плитке **«Для Smartcat»** нажмите **«Скачать .xlsx»**.
 
-![1 — скачать для Smartcat](export)
+![1 — проект и языки, 2 — сколько терминов, 3 — скачать для Smartcat](export)
 
 - В файл попадают согласованные переводы, а у языков без валидатора (турецкий, суахили и т. п.) — и «Без проверки».
 - Термины без единого перевода на выбранные языки в файл не попадают.
-- Для других программ есть **«Скачать XML»**.`;
+- Для других программ есть плитка **«XML»**, а чтобы просто посмотреть все языки — **«Таблица для просмотра»**.`;
 
-const ALL_REQUESTS = `Меню → **«Заявки»** → вкладка **«Все заявки»** — что предложили все остальные.
+const ALL_REQUESTS = `Меню → **«Заявки»** → вкладка **«Все заявки»** — что предложили все остальные. Под вкладками — **«На рассмотрении»**, **«Рассмотренные»** и **«Все»**, рядом с каждой видно, сколько заявок.
 
 ![1 — все заявки, 2 — на рассмотрении, рассмотренные или все](all-requests)
 
@@ -264,9 +272,11 @@ const GUIDES: Record<Role, Section[]> = {
 
 ![1 — предложить один термин, 2 — скачать для Smartcat, 3 — загрузить таблицу](menu-manager)` },
     { title: 'Предложить один термин', text: `1. Нажмите **«Предложить термин»** в меню.
-2. Напишите русский термин и определение.
-3. Отметьте галочками, **на какие языки** нужен перевод.
-4. Нажмите **«Отправить»**.
+2. Напишите русский термин и определение. Если похожий термин уже есть, сайт сразу покажет его — нажмите, чтобы открыть и проверить.
+3. Отметьте галочками, **на какие языки** нужен перевод. Быстрые кнопки: **«Выбрать все»**, **«Только основные»**, **«Снять все»**.
+4. Нажмите **«Отправить»** — кнопка всегда видна внизу экрана.
+
+Всё, что вы вписали, сохраняется само — вверху видно «Черновик сохранён в 14:32».
 
 ![1 — термин, 2 — языки](propose)
 
@@ -332,7 +342,9 @@ const GUIDES: Record<Role, Section[]> = {
     { title: 'Добавить человека', text: `Нужно **два** шага, иначе человек не войдёт:
 
 1. **Google Cloud → Google Auth Platform → Audience → Test users → Add users** — впишите почту.
-2. **Администрирование → Пользователи** — та же почта, имя и роль. Для переводчика и валидатора выберите языки.
+2. **Администрирование → Пользователи** → кнопка **«Добавить человека»** — та же почта, имя и роль. Для переводчика и валидатора выберите языки.
+
+Найти человека — поиск над таблицей (по имени, почте или коду языка) и фильтр по роли.
 
 ![Форма «Добавить человека»](admin-add)
 
@@ -407,18 +419,40 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-export function HelpPage({ me }: PageProps) {
+export function HelpPage({ me, route }: PageProps) {
   const owner = me.role === 'owner';
   const [role, setRole] = useState<Role>(me.role);
+  const [q, setQ] = useState('');
+  const [flash, setFlash] = useState<number | null>(null);
   const sections = GUIDES[role];
+  const ql = q.trim().toLowerCase();
+  const shown = sections.map((s, i) => ({ s, i })).filter(({ s }) => !ql || s.title.toLowerCase().includes(ql) || s.text.toLowerCase().includes(ql));
+
+  // переход из подсказки «?»: #/help?s=Название раздела|Другое название
+  const want = route.params.get('s');
+  useEffect(() => {
+    if (!want) return;
+    const topics = want.split('|').map((t) => t.toLowerCase());
+    const i = sections.findIndex((s) => topics.some((t) => s.title.toLowerCase() === t));
+    const j = i >= 0 ? i : sections.findIndex((s) => topics.some((t) => s.title.toLowerCase().includes(t) || t.includes(s.title.toLowerCase())));
+    if (j < 0) return;
+    const t = window.setTimeout(() => {
+      document.getElementById(`help-${j}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setFlash(j); window.setTimeout(() => setFlash(null), 2200);
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [want, role]);
+
+  const jump = (i: number) => { setQ(''); window.setTimeout(() => document.getElementById(`help-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); };
   return (
-    <div className="narrow help">
+    <div className="help">
       <h1>Инструкция</h1>
 
       <div className="help-hello">
         <h2>Привет! Мы переехали 💜</h2>
         <p>Теперь все термины живут здесь, а не в таблицах. Сначала может быть непривычно — это нормально.</p>
-        <p>Ниже всё по шагам и с картинками. Розовые цифры на картинках — куда нажимать.</p>
+        <p>Ниже всё по шагам и с картинками. Розовые цифры на картинках — куда нажимать. Слева — содержание и поиск.</p>
+        <p>На других страницах рядом с заголовком есть значок <span className="help-q" aria-hidden="true">?</span> — он открывает нужный раздел этой инструкции.</p>
         <p>Что-то непонятно — пишите в <b>«Обратную связь»</b> (кнопка справа внизу). Мы ответим. Го вайбить! ✨</p>
         <Button small onClick={() => go('feedback')}>Открыть «Обратную связь»</Button>
       </div>
@@ -430,16 +464,26 @@ export function HelpPage({ me }: PageProps) {
       ) : null}
       <h2>{owner ? `Роль «${ROLE_LABELS[role]}»` : `Для вашей роли — «${ROLE_LABELS[role]}»`}</h2>
 
-      <nav className="help-toc" aria-label="Содержание">
-        {sections.map((s, i) => <a key={i} href={`#help-${i}`} onClick={(e) => { e.preventDefault(); document.getElementById(`help-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{s.title}</a>)}
-      </nav>
-
-      {sections.map((s, i) => (
-        <section key={i} id={`help-${i}`} className="help-section">
-          <h3><span className="help-num">{i + 1}</span>{s.title}</h3>
-          <Rich text={s.text} />
-        </section>
-      ))}
+      <div className="help-layout">
+        <aside className="help-side">
+          <label className="help-search">
+            <Icon name="search" size={16} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по инструкции" aria-label="Поиск по инструкции" />
+          </label>
+          <nav className="help-toc" aria-label="Содержание">
+            {sections.map((s, i) => <a key={i} href={`#help-${i}`} className={shown.some((x) => x.i === i) ? '' : 'dim'} onClick={(e) => { e.preventDefault(); jump(i); }}>{s.title}</a>)}
+          </nav>
+        </aside>
+        <div className="help-main">
+          {ql && !shown.length ? <p className="muted">Ничего не нашлось по «{q}». Попробуйте другое слово или напишите в «Обратную связь».</p> : null}
+          {shown.map(({ s, i }) => (
+            <section key={i} id={`help-${i}`} className={`help-section${flash === i ? ' flash' : ''}`}>
+              <h3><span className="help-num">{i + 1}</span>{s.title}</h3>
+              <Rich text={s.text} />
+            </section>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { go, type PageProps } from '../router';
 import { AuthorChip, CopyButton } from '../ui/bits';
 import { ChangeModal, type ChangeMode } from '../ui/ChangeModal';
 import { Button, Confirm, Empty, Message, Pager, SearchBox, StatusBadge, useAsync, useFillHeight, usePageSize } from '../ui/kit';
+import { HelpLink } from '../ui/HelpLink';
 import { RequestDrawer } from '../ui/RequestDrawer';
 import { TermDrawer } from '../ui/TermDrawer';
 import { Icon } from '../ui/Icon';
@@ -95,7 +96,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
 
   return (
     <div>
-      <h1>Рабочая область — {language?.name ?? lang}</h1>
+      <h1>Рабочая область — {language?.name ?? lang} <HelpLink topics={['Как перевести термин', 'Проверить переводы']} /></h1>
       {langs.length > 1 ? (
         <div className="toolbar">
           <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Язык">

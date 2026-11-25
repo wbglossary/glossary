@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { can, rpc, type GlossaryItem, type Page } from '../api';
 import type { PageProps } from '../router';
 import { Button, Empty, Message, Pager, SearchBox, useAsync, useFillHeight, usePageSize } from '../ui/kit';
+import { HelpLink } from '../ui/HelpLink';
 import { TermDrawer } from '../ui/TermDrawer';
 import { DEFAULT_COLS, FIELD_COLS, SkeletonRows, TermsTable, type FieldCol, type SortKey } from '../ui/TermsTable';
 import { buildGlossaryXlsx, download } from '../exportFile';
@@ -103,7 +104,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
 
   return (
     <div>
-      <h1>Глоссарий{dupes ? <span className="muted"> · одинаковые русские термины</span> : null}</h1>
+      <h1>Глоссарий{dupes ? <span className="muted"> · одинаковые русские термины</span> : null} <HelpLink topics={['Кнопки над таблицей', 'Найти термин']} /></h1>
       <div className="toolbar">
         <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} />
         <select value={project ?? ''} onChange={(e) => { setProject(e.target.value ? Number(e.target.value) : null); setPage(1); }} aria-label="Проект">

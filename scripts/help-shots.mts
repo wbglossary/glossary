@@ -229,8 +229,8 @@ try {
 
   // 12. Выгрузка
   await go('export');
-  await mark(['text:Скачать для Smartcat']);
-  await shot('export', { x: 250, y: 60, w: 1050, h: 420 }, 0);
+  await mark(['.steps .field select', '.big-count', '.format-tile.main .btn']);
+  await shot('export', '.card.steps', 16, 1000);
 
   // 12б. Для подрядчиков
   await js(`document.querySelectorAll('.hs-badge').forEach((e) => e.remove()); document.querySelectorAll('.hs-mark').forEach((e) => e.classList.remove('hs-mark'));`);
@@ -253,6 +253,7 @@ try {
 
   // 14. Владелец: добавить человека
   await go('admin');
+  await click('text:Добавить человека'); await sleep(500);
   await js(`[...document.querySelectorAll('h3')].find((h) => h.textContent.includes('Добавить человека'))?.scrollIntoView({ block: 'center' })`);
   await sleep(400);
   const r = await js(`const h = [...document.querySelectorAll('h3')].find((h) => h.textContent.includes('Добавить человека')).parentElement.getBoundingClientRect(); return { x: h.left + scrollX, y: h.top + scrollY, w: h.width, h: h.height };`);

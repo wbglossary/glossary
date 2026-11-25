@@ -30,11 +30,11 @@ export function ArchivePage({ me }: PageProps) {
   return (
     <div>
       <h1>Архив</h1>
+      <div className="page-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'terms'} className={tab === 'terms' ? 'on' : ''} onClick={() => setTab('terms')}>Термины в архиве<span className="count">{data?.terms.length ?? '…'}</span></button>
+        <button role="tab" aria-selected={tab === 'rejected'} className={tab === 'rejected' ? 'on' : ''} onClick={() => setTab('rejected')}>Отклонённые заявки<span className="count">{data?.rejected.length ?? '…'}</span></button>
+      </div>
       <div className="toolbar">
-        <div className="seg">
-          <button className={tab === 'terms' ? 'on' : ''} onClick={() => setTab('terms')}>Термины в архиве ({data?.terms.length ?? '…'})</button>
-          <button className={tab === 'rejected' ? 'on' : ''} onClick={() => setTab('rejected')}>Отклонённые заявки ({data?.rejected.length ?? '…'})</button>
-        </div>
         <SearchBox value={q} onChange={setQ} />
       </div>
       {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
@@ -58,7 +58,7 @@ export function ArchivePage({ me }: PageProps) {
               </tr>
             ))}</tbody>
           </table>
-          {data && !data.terms.length ? <Empty>В архиве пусто.</Empty> : null}
+          {data && !data.terms.length ? <Empty icon="archive"><b>В архиве пусто.</b><br />Сюда попадают термины, которые убрали кнопкой «В архив» в карточке. Их можно вернуть.</Empty> : null}
         </div>
       ) : (
         <div className="table-wrap">
@@ -71,7 +71,7 @@ export function ArchivePage({ me }: PageProps) {
               </tr>
             ))}</tbody>
           </table>
-          {data && !data.rejected.length ? <Empty>Отклонённых заявок нет.</Empty> : null}
+          {data && !data.rejected.length ? <Empty icon="inbox"><b>Отклонённых заявок нет.</b><br />Здесь будут заявки, которые валидатор не принял.</Empty> : null}
           <p className="muted small">Отклонённую заявку вернуть нельзя — при необходимости её подают заново.</p>
         </div>
       )}

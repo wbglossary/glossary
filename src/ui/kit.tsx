@@ -166,6 +166,13 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   return { data, error, loading, reload: () => setTick((x) => x + 1), setData };
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="empty">{children}</div>;
+/** Пусто: значок, объяснение и (по желанию) кнопка следующего шага. */
+export function Empty({ children, icon = 'search', action }: { children: ReactNode; icon?: string; action?: ReactNode }) {
+  return (
+    <div className="empty">
+      <span className="empty-ico" aria-hidden="true"><Icon name={icon} size={26} /></span>
+      <div>{children}</div>
+      {action ? <div className="empty-act">{action}</div> : null}
+    </div>
+  );
 }

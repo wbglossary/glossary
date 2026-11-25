@@ -191,3 +191,15 @@ export async function buildGlossaryXlsx(items: {
   }
   return new Blob([await wb.xlsx.writeBuffer()], { type: XLSX_TYPE });
 }
+
+/** Шаблон для «Загрузки терминов»: какие столбцы ждёт сайт, с одной строкой-примером. */
+export async function buildImportTemplate(langs: { code: string; name: string }[]): Promise<Blob> {
+  const { default: ExcelJS } = await import('exceljs');
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Термины');
+  ws.addRow(['Русский термин', 'Определение', ...langs.map((l) => l.code)]);
+  ws.addRow(['Пункт выдачи', 'Место, где покупатель забирает заказ.', ...langs.map((l) => (l.code === 'EN' ? 'Pick-up point' : ''))]);
+  ws.getRow(1).font = { bold: true };
+  ws.columns.forEach((c, i) => { c.width = i === 1 ? 50 : i === 0 ? 28 : 22; });
+  return new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}

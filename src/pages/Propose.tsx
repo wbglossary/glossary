@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { can, rpc, type Forbidden, type GlossaryItem, type Page } from '../api';
 import { go, type PageProps } from '../router';
 import { Button, Message, SearchBox } from '../ui/kit';
+import { HelpLink } from '../ui/HelpLink';
+import { TermDrawer } from '../ui/TermDrawer';
+import { Icon } from '../ui/Icon';
 
 type Kind = 'new' | 'translation';
 interface Form {
@@ -34,8 +37,14 @@ export function ProposePage({ me, route }: PageProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLangFields, setShowLangFields] = useState(false);
+  const [openTerm, setOpenTerm] = useState<number | null>(null);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const touched = !!(form.ru || form.translation || form.definition || form.examples || form.comment || term);
 
-  useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify({ kind, form })); }, [kind, form]);
+  useEffect(() => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ kind, form }));
+    if (form.ru || form.translation || form.definition || form.examples || form.comment) setSavedAt(new Date());
+  }, [kind, form]);
   useEffect(() => {
     if (kind !== 'new' || form.ru.trim().length < 2) { setSimilar([]); return; }
     const t = window.setTimeout(() => rpc<Similar[]>('similar_terms', { p_ru: form.ru }).then(setSimilar).catch(() => setSimilar([])), 300);
@@ -65,6 +74,7 @@ export function ProposePage({ me, route }: PageProps) {
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
+  const clearForm = () => { if (!touched || window.confirm('Очистить форму? Всё, что вы вписали, удалится.')) restart(); };
   const restart = () => { setResult(null); setForm({ ...EMPTY, lang: langs.length === 1 ? langs[0] : '' }); setTerm(null); setRepeat(null); setError(null); localStorage.removeItem(DRAFT_KEY); };
 
   if (result) {
@@ -83,25 +93,26 @@ export function ProposePage({ me, route }: PageProps) {
 
   return (
     <div className="narrow">
-      <h1>Предложить термин</h1>
-      <h3>1. Что вы предлагаете</h3>
-      <div className="kinds">
-        <label className={`kind ${kind === 'new' ? 'on' : ''}`}>
-          <input type="radio" checked={kind === 'new'} onChange={() => { setKind('new'); setRepeat(null); }} />
-          <b>Новый термин</b><span className="muted">Новый смысл, которого ещё нет в глоссарии.</span>
-        </label>
-        {langs.length ? (
-          <label className={`kind ${kind === 'translation' ? 'on' : ''}`}>
-            <input type="radio" checked={kind === 'translation'} onChange={() => { setKind('translation'); setRepeat(null); }} />
-            <b>Перевод к существующему термину</b><span className="muted">Термин есть, а перевода на нужный язык нет.</span>
-          </label>
-        ) : null}
+      <div className="page-head">
+        <h1>Предложить термин <HelpLink topics={['Предложить новый термин', 'Предложить один термин']} /></h1>
+        <span className={`draft-state${savedAt ? ' on' : ''}`} role="status">
+          {savedAt ? <><Icon name="check" size={13} /> Черновик сохранён в {savedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</> : 'Всё, что вы впишете, сохранится само'}
+        </span>
       </div>
-      <p className="muted small">Заменить перевод или добавить вариант можно прямо в карточке термина — кнопками «Заменить» и «Добавить вариант».</p>
+      {langs.length ? (
+        <div className="seg" role="radiogroup" aria-label="Что вы предлагаете">
+          <button role="radio" aria-checked={kind === 'new'} className={kind === 'new' ? 'on' : ''} onClick={() => { setKind('new'); setRepeat(null); }}
+            title="Новый смысл, которого ещё нет в глоссарии">Новый термин</button>
+          <button role="radio" aria-checked={kind === 'translation'} className={kind === 'translation' ? 'on' : ''} onClick={() => { setKind('translation'); setRepeat(null); }}
+            title="Термин уже есть, а перевода на нужный язык нет">Перевод к существующему термину</button>
+        </div>
+      ) : null}
+      <p className="muted small hint-line" title="Откройте термин в Глоссарии — у перевода есть кнопки «Заменить» и «+ Вариант»">
+        <Icon name="help" size={14} /> Хотите поменять готовый перевод? Это делается в карточке термина, кнопкой «Заменить».</p>
 
       {kind === 'translation' ? (
         <>
-          <h3>2. Термин</h3>
+          <h3>Термин</h3>
           {term ? (
             <div className="card row gap"><span className="tb">{term.tb}</span> <b>{term.ru}</b> <span className="muted">{brief(term.definition)}</span>
               <Button small kind="link" onClick={() => setTerm(null)}>выбрать другой</Button></div>
@@ -109,15 +120,14 @@ export function ProposePage({ me, route }: PageProps) {
         </>
       ) : null}
 
-      <h3>{kind === 'new' ? '2' : '3'}. Поля</h3>
       {kind === 'new' ? (
         <>
           <label className="field"><span>Русский термин <b className="req">обязательно</b></span>
-            <input value={form.ru} onChange={(e) => { set('ru', e.target.value); setRepeat(null); }} autoFocus />
+            <input value={form.ru} onChange={(e) => { set('ru', e.target.value); setRepeat(null); }} autoFocus placeholder="Например: Пункт выдачи" maxLength={200} />
           </label>
           {similar.length && !repeat ? (
             <Message kind="warn">Похожие термины уже есть — проверьте, не то же ли это. Заявку всё равно можно отправить.
-              <ul>{similar.map((s) => <li key={s.id}><span className="tb">{s.tb}</span> {s.ru}{brief(s.definition)}{s.exact ? ' — точное совпадение' : ''}{s.status === 'archived' ? ' — в архиве' : ''}</li>)}</ul>
+              <ul>{similar.map((s) => <li key={s.id}><button type="button" className="linkish" onClick={() => setOpenTerm(s.id)} title="Открыть карточку термина"><span className="tb">{s.tb}</span> {s.ru}</button>{brief(s.definition)}{s.exact ? ' — точное совпадение' : ''}{s.status === 'archived' ? ' — в архиве' : ''}</li>)}</ul>
             </Message>
           ) : null}
           {repeat ? (
@@ -148,7 +158,7 @@ export function ProposePage({ me, route }: PageProps) {
           {form.lang ? (
             <>
               <label className="field"><span>Перевод{kind === 'new' ? ' (по желанию)' : ''}</span>
-                <input value={form.translation} onChange={(e) => set('translation', e.target.value)} />
+                <input value={form.translation} onChange={(e) => set('translation', e.target.value)} placeholder="Как это будет на выбранном языке" />
               </label>
               <Button small kind="link" onClick={() => setShowLangFields(!showLangFields)}>{showLangFields ? 'Скрыть' : 'Добавить'} комментарий лингвиста и «Как нельзя»</Button>
               {showLangFields ? (
@@ -169,11 +179,24 @@ export function ProposePage({ me, route }: PageProps) {
           ) : null}
         </>
       ) : kind === 'new' ? (
-        <div className="field"><span>На какие языки нужен перевод</span>
-          <div className="checks">{activeLangs.map((l) => (
-            <label key={l.code}><input type="checkbox" checked={targets.includes(l.code)}
-              onChange={(e) => set('targets', e.target.checked ? [...targets, l.code] : targets.filter((x) => x !== l.code))} /> {l.code} — {l.name}{l.kind === 'short' ? ' (сокр.)' : ''}</label>
-          ))}</div>
+        <div className="field"><span>На какие языки нужен перевод <span className="muted">· выбрано {targets.length}</span></span>
+          <div className="row gap quick-pick">
+            <Button small onClick={() => set('targets', activeLangs.map((l) => l.code))}>Выбрать все</Button>
+            <Button small onClick={() => set('targets', activeLangs.filter((l) => l.kind === 'full').map((l) => l.code))}>Только основные</Button>
+            <Button small kind="link" onClick={() => set('targets', [])}>Снять все</Button>
+          </div>
+          {(['full', 'short'] as const).map((k) => {
+            const group = activeLangs.filter((l) => (k === 'short') === (l.kind === 'short'));
+            return group.length ? (
+              <div key={k} className="lang-group">
+                <div className="muted small">{k === 'full' ? 'Основные языки' : 'Сокращённые языки (переводят только нужное)'}</div>
+                <div className="checks">{group.map((l) => (
+                  <label key={l.code}><input type="checkbox" checked={targets.includes(l.code)}
+                    onChange={(e) => set('targets', e.target.checked ? [...targets, l.code] : targets.filter((x) => x !== l.code))} /> {l.code} — {l.name}</label>
+                ))}</div>
+              </div>
+            ) : null;
+          })}
           <span className="muted small">Заявка уйдёт переводчикам отмеченных языков. Остальные увидят термин во вкладке «Новое из других языков» и переведут, если он им нужен.</span>
         </div>
       ) : null}
@@ -181,26 +204,31 @@ export function ProposePage({ me, route }: PageProps) {
       {kind === 'new' ? (
         <>
           <label className="field"><span>Определение (на русском) {repeat ? <b className="req">обязательно для другого смысла</b> : null}</span>
-            <textarea value={form.definition} onChange={(e) => set('definition', e.target.value)} /></label>
-          <label className="field"><span>Примеры</span><textarea value={form.examples} onChange={(e) => set('examples', e.target.value)} /></label>
+            <textarea value={form.definition} onChange={(e) => set('definition', e.target.value)}
+              placeholder="Что это значит — простыми словами. Например: место, где покупатель забирает заказ." />
+            <span className="counter">{form.definition.length} зн.</span></label>
+          <label className="field"><span>Примеры</span><textarea value={form.examples} onChange={(e) => set('examples', e.target.value)}
+            placeholder="Где встречается. Например: «Заберите заказ в пункте выдачи»" />
+            <span className="counter">{form.examples.length} зн.</span></label>
           <div className="field"><span>Проекты (не выбрано — общий термин)</span>
             <div className="checks">{me.projects.filter((p) => !p.closed).map((p) => (
               <label key={p.id}><input type="checkbox" checked={form.projectIds.includes(p.id)}
                 onChange={(e) => set('projectIds', e.target.checked ? [...form.projectIds, p.id] : form.projectIds.filter((x) => x !== p.id))} /> {p.name}</label>
             ))}</div>
           </div>
-          <label className="field"><span>Комментарий</span><textarea value={form.comment} onChange={(e) => set('comment', e.target.value)} /></label>
+          <label className="field"><span>Комментарий</span><textarea value={form.comment} onChange={(e) => set('comment', e.target.value)}
+            placeholder="Что ещё стоит знать переводчикам (по желанию)" /></label>
         </>
       ) : null}
 
       {error ? <Message kind="error">{error}</Message> : null}
       {!repeat ? (
-        <div className="actions">
-          <Button kind="primary" disabled={busy} onClick={() => send()}>Отправить</Button>
-          <Button kind="link" onClick={restart}>Очистить форму</Button>
+        <div className="form-bar">
+          <Button kind="primary" disabled={busy} onClick={() => send()}>{busy ? 'Отправляю…' : 'Отправить'}</Button>
+          <Button kind="link" disabled={!touched} onClick={clearForm}>Очистить форму</Button>
         </div>
       ) : null}
-      <p className="muted small">Введённое сохраняется автоматически, пока вы не отправите.</p>
+      <TermDrawer me={me} id={openTerm} onClose={() => setOpenTerm(null)} />
     </div>
   );
 }
