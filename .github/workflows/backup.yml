@@ -1,5 +1,5 @@
 # Каждую ночь: резервная копия базы и заодно «будим» бесплатный Supabase.
-# По понедельникам копия уходит владельцам на почту. В GitHub копия не выкладывается: репозиторий публичный,
+# По понедельникам копия уходит владельцам на почту, а таблицы глоссария (общая и по проектам) — на почту из секрета EXPORT_TO. В GitHub копия не выкладывается: репозиторий публичный,
 # а в копии есть почты и имена людей.
 name: Ночная копия базы
 on:
@@ -9,6 +9,10 @@ on:
     inputs:
       mail:
         description: 'Отправить копию владельцам на почту сейчас'
+        type: boolean
+        default: true
+      tables:
+        description: 'Отправить таблицы глоссария (общую и по проектам) на почту из EXPORT_TO сейчас'
         type: boolean
         default: true
 jobs:
@@ -32,3 +36,12 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      - name: Таблицы глоссария на почту (по понедельникам или вручную)
+        run: |
+          if [ "$(date -u +%u)" = "1" ] || [ "$MANUAL" = "true" ]; then npx tsx scripts/mail-export.ts; else echo "Не понедельник — таблицы не отправляю."; fi
+        env:
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' && inputs.tables }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EXPORT_TO: ${{ secrets.EXPORT_TO }}
