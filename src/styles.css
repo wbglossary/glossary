@@ -102,15 +102,44 @@ a { color: var(--accent-2); text-underline-offset: 3px; }
   position: sticky; top: 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; }
 .side .logo { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; padding: 2px 12px 16px; display: flex; gap: 10px; align-items: center; }
 .side .logo i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #e5357a, #6c2bd9); display: inline-block; }
-.side a { display: flex; align-items: center; min-height: 38px; color: var(--muted); text-decoration: none; padding: 0 12px; border-radius: 999px;
-  font-weight: 500; transition: background .15s, color .15s; }
-.side a:hover { color: var(--text); background: var(--soft); }
+.side a { display: flex; align-items: center; gap: 10px; min-height: 38px; color: var(--muted); text-decoration: none; padding: 0 10px 0 12px; border-radius: 999px;
+  font-weight: 500; transition: color .15s, background .15s; }
+.side a .icon { flex: none; opacity: .8; }
+.side a .nav-label { flex: 1; min-width: 0; }
+/* наведение — только цвет текста, без заливки: активный пункт всегда один */
+.side a:hover { color: var(--text); }
+.side a:hover .icon { opacity: 1; }
 .side a.active { color: var(--accent); background: var(--accent-bg); font-weight: 600; }
+.side a.active .icon { opacity: 1; }
+.side a:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.nav-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 2px 12px 4px; }
+.nav-badge { flex: none; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent);
+  font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.side a.active .nav-badge { background: var(--accent-2); }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .top { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
-.who { display: flex; align-items: center; gap: 10px; background: var(--card); border-radius: 999px; padding: 5px 6px 5px 6px; box-shadow: var(--shadow); }
-.who b { font-weight: 600; }
-.who .btn { min-height: var(--control-sm); }
+.profile { position: relative; }
+.profile-btn { display: flex; align-items: center; gap: 10px; background: var(--card); border: none; border-radius: 999px; padding: 5px 12px 5px 6px;
+  box-shadow: var(--shadow); font: inherit; color: var(--text); cursor: pointer; text-align: left; }
+.profile-btn:hover { box-shadow: var(--shadow-lift); }
+.profile-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.profile-text { display: flex; flex-direction: column; line-height: 1.2; }
+.profile-text b { font-weight: 600; font-size: 14px; }
+.profile-back { position: fixed; inset: 0; z-index: 25; }
+.profile-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 26; min-width: 260px; background: var(--card); border-radius: 16px;
+  box-shadow: 0 18px 44px rgba(20, 8, 45, .18), 0 0 0 1px var(--line); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.profile-menu > button { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border: none; background: none; border-radius: 10px;
+  font: inherit; color: var(--text); cursor: pointer; text-align: left; }
+.profile-menu > button:hover { background: var(--soft); }
+.profile-menu > button.danger { color: var(--red); }
+.profile-menu hr { border: none; border-top: 1px solid var(--line); margin: 6px 4px; }
+.profile-sec { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 8px 12px 4px; }
+.theme-choice { display: flex; gap: 4px; padding: 0 6px 4px; }
+.theme-choice button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--soft); font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.theme-choice button.on { border-color: var(--accent-2); color: var(--accent); background: var(--accent-bg); font-weight: 600; }
 .work { background: var(--card); border-radius: var(--radius); padding: 28px 32px 76px; min-width: 0; box-shadow: var(--shadow); }
 .narrow { max-width: 860px; }
 @media (max-width: 1000px) {
@@ -122,6 +151,9 @@ a { color: var(--accent-2); text-underline-offset: 3px; }
   .layout { flex-direction: column; }
   .side { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; padding: 10px; }
   .side .logo { width: 100%; padding-bottom: 8px; }
+  .nav-group { display: contents; }
+  .nav-title { display: none; }
+  .profile-text .small { display: none; }
 }
 
 /* ---------- Поля и кнопки: одна высота, одна линия ---------- */
@@ -352,8 +384,6 @@ td.c-unused { color: var(--muted); }
 /* ---------- Пояснения к меню ---------- */
 .side { z-index: 30; }
 .side a { position: relative; }
-.side a.sep { margin-top: 10px; }
-.side a.sep::before { content: ''; position: absolute; left: 12px; right: 12px; top: -6px; border-top: 1px solid var(--line); }
 .nav-hint { position: absolute; left: calc(100% + 14px); top: 50%; transform: translate(-4px, -50%); width: 260px; z-index: 40;
   padding: 10px 12px; border-radius: 12px; background: var(--tooltip-bg); color: var(--tooltip-fg); font-size: 13px; font-weight: 400; line-height: 1.45;
   box-shadow: var(--shadow-lift); opacity: 0; visibility: hidden; pointer-events: none;
@@ -364,12 +394,12 @@ td.c-unused { color: var(--muted); }
 @media (hover: none), (max-width: 720px) { .nav-hint { display: none; } }
 
 /* ---------- Обратная связь ---------- */
-.fb-fab { position: fixed; right: 20px; bottom: 20px; z-index: 15; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px;
+.fb-fab { position: fixed; right: 20px; bottom: 20px; z-index: 15; display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; padding: 0;
   border: none; border-radius: 999px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-lift);
   transition: background .15s, transform .15s var(--ease); }
 .fb-fab:hover { background: var(--accent-2); transform: translateY(-1px); }
 .fb-fab:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring), var(--shadow-lift); }
-@media (max-width: 720px) { .fb-fab span { display: none; } .fb-fab { padding: 0; width: 48px; justify-content: center; } }
+
 .fb-kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 6px; }
 .fb-kinds button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 14px;
   border: 1px solid var(--line-strong); background: var(--card); font: inherit; cursor: pointer; color: var(--text); transition: border-color .15s, background .15s; }

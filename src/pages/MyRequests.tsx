@@ -8,9 +8,9 @@ import { Icon } from '../ui/Icon';
 
 const CLS: Record<string, string> = { pending: 'st-draft', approved: 'st-approved', rejected: 'st-need', auto_removed: 'st-unused', closed: 'st-unused', withdrawn: 'st-unused' };
 
-export function MyRequestsPage({ me }: PageProps) {
+export function MyRequestsPage({ me, route }: PageProps) {
   const seeAll = can.allRequests(me);
-  const [tab, setTab] = useState<'mine' | 'all'>('mine');
+  const [tab, setTab] = useState<'mine' | 'all'>(seeAll && route.params.get('tab') === 'all' ? 'all' : 'mine');
   const [status, setStatus] = useState<'pending' | 'done' | 'all'>('pending');
   const [q, setQ] = useState('');
   const { data, error, loading, reload } = useAsync(

@@ -106,9 +106,12 @@ try {
   await mark(['text:Глоссарий', 'text:Рабочая область', 'text:Инструкция']);
   await shot('menu', '.side', 10);
 
-  // 1б. Тема
-  await mark(['.theme-btn']);
-  await shot('theme', '.who', 16);
+  // 1б. Тема — в меню профиля
+  await click('.profile-btn'); await waitFor('.profile-menu'); await sleep(300);
+  await mark(['.profile-btn', '.theme-choice']);
+  const pm = await js(`const a = document.querySelector('.profile-btn').getBoundingClientRect(); const b = document.querySelector('.profile-menu').getBoundingClientRect(); return { x: Math.min(a.left, b.left) + scrollX, y: a.top + scrollY, w: Math.max(a.right, b.right) - Math.min(a.left, b.left), h: b.bottom - a.top };`);
+  await shot('theme', pm, 22);
+  await click('.profile-back'); await sleep(200);
 
   // 2. Поиск
   await go('glossary');

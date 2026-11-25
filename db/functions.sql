@@ -389,7 +389,7 @@ begin
     select count(*) into n from translations x join terms t on t.id = x.term_id where t.status = 'active' and x.status = 'unchecked';
     cards := cards || jsonb_build_object('key', 'unchecked', 'label', 'Переводы «Без проверки»', 'count', n, 'link', 'admin?tab=langs');
     select count(*) into n from requests r where r.status = 'pending';
-    cards := cards || jsonb_build_object('key', 'allrequests', 'label', 'Заявок на рассмотрении', 'count', n, 'link', 'log');
+    cards := cards || jsonb_build_object('key', 'allrequests', 'label', 'Заявок на рассмотрении', 'count', n, 'link', 'my-requests?tab=all');
     select count(*) into n from feedback f where f.status = 'new';
     cards := cards || jsonb_build_object('key', 'feedback', 'label', 'Новые обращения в обратной связи', 'count', n, 'link', 'feedback');
   end if;

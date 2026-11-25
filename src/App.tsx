@@ -19,7 +19,9 @@ import { ImportTranslationsPage } from './pages/ImportTranslations';
 import { FeedbackModal } from './ui/FeedbackModal';
 import { Icon } from './ui/Icon';
 import { menuHint } from './menuHints';
-import { ThemeButton } from './theme';
+import { ThemeChoice } from './theme';
+import type { IconName } from './ui/Icon';
+import type { DashCard } from './api';
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -28,6 +30,8 @@ export function App() {
   const [route, setRoute] = useState<Route>(readRoute());
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [counts, setCounts] = useState<DashCard[]>([]);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -58,6 +62,9 @@ export function App() {
     catch (e) { setMe(null); setMeError((e as Error).message); }
   }, []);
   useEffect(() => { if (session) loadMe(); else setMe(null); }, [session, loadMe]);
+  // счётчики для меню — те же, что на Главной; обновляем при переходах между разделами
+  useEffect(() => { if (me) rpc<DashCard[]>('dashboard').then(setCounts).catch(() => setCounts([])); }, [me, route.page]);
+  useEffect(() => { setProfileOpen(false); }, [route.page]);
 
   if (session === undefined) return <div className="center">Загрузка…</div>;
   if (!session) return <Login />;
@@ -76,49 +83,92 @@ export function App() {
   if (!me) return <div className="center">Загрузка…</div>;
 
   const showWork = can.work(me) || me.role === 'owner' || can.directLangs(me).length > 0;
-  const menu: { page: string; label: string; show: boolean }[] = [
-    { page: 'home', label: 'Главная', show: true },
-    { page: 'glossary', label: 'Глоссарий', show: true },
-    { page: 'work', label: 'Рабочая область', show: showWork },
-    { page: 'propose', label: 'Предложить термин', show: can.submit(me) },
-    { page: 'my-requests', label: can.allRequests(me) ? 'Заявки' : 'Мои заявки', show: can.submit(me) || can.allRequests(me) },
-    { page: 'archive', label: 'Архив', show: can.archive(me) },
-    { page: 'export', label: 'Выгрузка', show: can.export(me) },
-    { page: 'import', label: 'Загрузка терминов', show: me.role === 'manager' || me.role === 'owner' },
-    { page: 'log', label: 'Журнал изменений', show: can.log(me) },
-    { page: 'admin', label: 'Администрирование', show: can.admin(me) },
-    { page: 'help', label: 'Инструкция', show: true },
-    { page: 'feedback', label: 'Обратная связь', show: true }
+  const sum = (pred: (k: string) => boolean) => counts.filter((c) => pred(c.key)).reduce((n, c) => n + c.count, 0);
+  const lead = me.role === 'owner' || me.role === 'manager';
+  // число на пункте меню — сколько там ждёт именно этого человека
+  const badge: Record<string, number> = {
+    work: me.role === 'contractor' ? sum((k) => k.startsWith('direct-'))
+      : sum((k) => ['requests-', 'obsolete-', 'review-'].some((p) => k.startsWith(p)) || (k.startsWith('draft-') && can.validator(me))
+        || (!lead && k.startsWith('need-'))),
+    'my-requests': sum((k) => k === 'allrequests'),
+    feedback: sum((k) => k === 'feedback' || k === 'fb-answers')
+  };
+  type Item = { page: string; label: string; icon: IconName; show: boolean };
+  const groups: { title: string | null; items: Item[] }[] = [
+    { title: null, items: [
+      { page: 'home', label: 'Главная', icon: 'home', show: true },
+      { page: 'glossary', label: 'Глоссарий', icon: 'book', show: true },
+      { page: 'work', label: 'Рабочая область', icon: 'pen', show: showWork },
+      { page: 'propose', label: 'Предложить термин', icon: 'plus', show: can.submit(me) },
+      { page: 'my-requests', label: can.allRequests(me) ? 'Заявки' : 'Мои заявки', icon: 'inbox', show: can.submit(me) || can.allRequests(me) }
+    ] },
+    { title: 'Данные', items: [
+      { page: 'archive', label: 'Архив', icon: 'archive', show: can.archive(me) },
+      { page: 'export', label: 'Выгрузка', icon: 'download', show: can.export(me) },
+      { page: 'import', label: 'Загрузка терминов', icon: 'upload', show: lead }
+    ] },
+    { title: 'Система', items: [
+      { page: 'log', label: 'Журнал изменений', icon: 'history', show: can.log(me) },
+      { page: 'admin', label: 'Администрирование', icon: 'sliders', show: can.admin(me) },
+      { page: 'help', label: 'Инструкция', icon: 'help', show: true },
+      { page: 'feedback', label: 'Обратная связь', icon: 'comment', show: true }
+    ] }
   ];
-  const visible = menu.filter((m) => m.show);
+  const visible = groups.flatMap((g) => g.items.filter((m) => m.show));
   const current = visible.find((m) => m.page === route.page) ? route.page : 'home';
   const props = { me, route, reloadMe: loadMe };
   const langName = me.lang ? me.languages.find((l) => l.code === me.lang)?.name : null;
+  const roleText = me.langs.length > 1
+    ? me.langs.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ')
+    : `${ROLE_LABELS[me.role]}${langName ? ` (${langName})` : ''}${me.role === 'contractor' ? ` ${me.contractor_no}` : ''}`;
 
   return (
     <div className="layout">
-      <nav className="side">
+      <nav className="side" aria-label="Разделы">
         <div className="logo"><i /> Глоссарий</div>
-        {visible.map((m, i) => {
-          const hint = menuHint(m.page, me);
+        {groups.map((g, gi) => {
+          const items = g.items.filter((m) => m.show);
+          if (!items.length) return null;
           return (
-            <a key={m.page} href={`#/${m.page}`} className={`${current === m.page ? 'active' : ''}${m.page === 'help' ? ' sep' : ''}`}
-              aria-describedby={hint ? `hint-${i}` : undefined}>
-              {m.label}
-              {hint ? <span className="nav-hint" role="tooltip" id={`hint-${i}`}>{hint}</span> : null}
-            </a>
+            <div key={gi} className="nav-group">
+              {g.title ? <div className="nav-title">{g.title}</div> : null}
+              {items.map((m) => {
+                const hint = menuHint(m.page, me);
+                const n = badge[m.page] ?? 0;
+                return (
+                  <a key={m.page} href={`#/${m.page}`} className={current === m.page ? 'active' : ''} aria-current={current === m.page ? 'page' : undefined}
+                    aria-describedby={hint ? `hint-${m.page}` : undefined}>
+                    <Icon name={m.icon} size={17} />
+                    <span className="nav-label">{m.label}</span>
+                    {n > 0 ? <span className="nav-badge" aria-label={`${n} ждут`}>{n > 999 ? '999+' : n}</span> : null}
+                    {hint ? <span className="nav-hint" role="tooltip" id={`hint-${m.page}`}>{hint}</span> : null}
+                  </a>
+                );
+              })}
+            </div>
           );
         })}
       </nav>
       <div className="main">
         <header className="top">
-          <div className="who">
-            <button className="btn link" title="Выбрать аватар" onClick={() => setAvatarOpen(true)}><Avatar name={me.avatar} size={30} /></button>
-            <span><b>{me.name}</b> · {me.langs.length > 1
-              ? me.langs.map((l) => `${l.role === 'validator' ? 'Валидатор' : 'Переводчик'} ${l.code}`).join(' · ')
-              : <>{ROLE_LABELS[me.role]}{langName ? ` (${langName})` : ''}</>}{me.role === 'contractor' ? ` ${me.contractor_no}` : ''}</span>
-            <ThemeButton />
-            <Button small kind="link" onClick={() => supabase.auth.signOut()}>Выйти</Button>
+          <div className="profile">
+            <button className="profile-btn" aria-haspopup="menu" aria-expanded={profileOpen} onClick={() => setProfileOpen(!profileOpen)}>
+              <Avatar name={me.avatar} size={30} />
+              <span className="profile-text"><b>{me.name}</b><span className="muted small">{roleText}</span></span>
+              <Icon name="down" size={16} />
+            </button>
+            {profileOpen ? (
+              <>
+                <div className="profile-back" onMouseDown={() => setProfileOpen(false)} />
+                <div className="profile-menu" role="menu">
+                  <button role="menuitem" onClick={() => { setProfileOpen(false); setAvatarOpen(true); }}><Icon name="smile" size={16} /> Сменить аватар</button>
+                  <div className="profile-sec">Тема оформления</div>
+                  <ThemeChoice />
+                  <hr />
+                  <button role="menuitem" className="danger" onClick={() => { if (window.confirm('Выйти из глоссария?')) supabase.auth.signOut(); }}><Icon name="logout" size={16} /> Выйти</button>
+                </div>
+              </>
+            ) : null}
           </div>
         </header>
         <section className="work">
@@ -136,8 +186,8 @@ export function App() {
           {current === 'feedback' && <FeedbackPage {...props} />}
         </section>
       </div>
-      <button className="fb-fab" onClick={() => setFeedbackOpen(true)} aria-label="Обратная связь: вопрос, проблема или идея">
-        <Icon name="comment" size={18} /><span>Обратная связь</span>
+      <button className="fb-fab" onClick={() => setFeedbackOpen(true)} aria-label="Обратная связь: вопрос, проблема или идея" title="Обратная связь: вопрос, проблема или идея">
+        <Icon name="comment" size={20} />
       </button>
       {feedbackOpen ? <FeedbackModal page={current} pageLabel={visible.find((m) => m.page === current)?.label ?? ''} onClose={() => setFeedbackOpen(false)} /> : null}
       {avatarOpen ? (
