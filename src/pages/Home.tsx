@@ -107,7 +107,8 @@ export function HomePage({ me, reloadMe }: PageProps) {
           </div>
         </>
       )}
-      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={() => { recent.reload(); found.reload(); dash.reload(); }} />
+      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={() => { recent.reload(); found.reload(); dash.reload(); }}
+        list={(found.data?.items.some((x) => x.id === open) ? found.data.items : recent.data ?? []).map((x) => x.id)} onOpen={setOpen} />
     </div>
   );
 }

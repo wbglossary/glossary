@@ -96,34 +96,40 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
   return (
     <div>
       <h1>Рабочая область — {language?.name ?? lang}</h1>
-      <div className="toolbar">
-        {langs.length > 1 ? (
-          <select value={lang} onChange={(e) => setLang(e.target.value)}>
+      {langs.length > 1 ? (
+        <div className="toolbar">
+          <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Язык">
             {langs.map((l) => <option key={l} value={l}>{l} — {me.languages.find((x) => x.code === l)?.name}</option>)}
           </select>
-        ) : null}
-        <div className="seg">
-          <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>Мой язык</button>
-          <button className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>Новое из других языков</button>
-          {(d?.counts.review ?? 0) > 0 || tab === 'review' ? <button className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>На пересмотр<span className="count">{d?.counts.review ?? ''}</span></button> : null}
-          {isWorker || me.role === 'owner' ? <button className={tab === 'requests' ? 'on' : ''} onClick={() => setTab('requests')}>Заявки и просьбы{pendingReqs ? <span className="count">{pendingReqs}</span> : null}</button> : null}
         </div>
+      ) : null}
+      <div className="page-tabs" role="tablist" aria-label="Разделы рабочей области">
+        <button role="tab" aria-selected={tab === 'mine'} className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>Мой язык</button>
+        <button role="tab" aria-selected={tab === 'new'} className={tab === 'new' ? 'on' : ''} onClick={() => setTab('new')}>Новое из других языков</button>
+        {(d?.counts.review ?? 0) > 0 || tab === 'review' ? <button role="tab" aria-selected={tab === 'review'} className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>На пересмотр<span className="count">{d?.counts.review ?? ''}</span></button> : null}
+        {isWorker || me.role === 'owner' ? <button role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'on' : ''} onClick={() => setTab('requests')}>Заявки и просьбы{pendingReqs ? <span className="count">{pendingReqs}</span> : null}</button> : null}
       </div>
-      {me.role === 'owner' && !isWorker ? <Message kind="info">Вы смотрите рабочую область как владелец — только просмотр.</Message> : null}
+      {me.role === 'owner' && !isWorker ? (
+        <div className="viewonly" role="note">
+          <Icon name="eye" size={20} />
+          <div><b>Режим просмотра.</b> Вы владелец, а вписывать и согласовывать переводы здесь могут переводчики и валидатор этого языка.
+            Чтобы что-то поменять, нажмите на термин — в карточке есть действия владельца. Назначить людей на язык можно в «Администрировании».</div>
+        </div>
+      ) : null}
       {d?.can.unchecked ? <Message kind="info">У языка пока нет валидатора. Ваши переводы сразу видны в глоссарии со статусом «Без проверки».</Message> : null}
       {msgs.map((m, i) => <Message key={i} kind={m.kind} onClose={() => setMsgs(msgs.filter((_, j) => j !== i))}>{m.text}</Message>)}
 
       {tab === 'requests' ? <RequestsTab me={me} lang={lang} langName={language?.name ?? lang} reqs={reqs} /> : (
         <>
+          {tab === 'mine' ? (
+            <div className="chips" role="group" aria-label="Статус перевода">
+              {[['all', 'Все'], ['need', `Нужен перевод${d?.kind === 'full' ? ` · ${d?.counts.need ?? ''}` : ''}`], ['draft', `Черновик · ${d?.counts.draft ?? ''}`],
+                ['unchecked', 'Без проверки'], ['approved', 'Согласовано'], ['unused', 'Не актуально для языка']].map(([k, label]) => (
+                <button key={k} className={`chip${status === k ? ' on' : ''}${k !== 'all' ? ' dot-' + k : ''}`} aria-pressed={status === k} onClick={() => setStatus(k)}>{label}</button>
+              ))}
+            </div>
+          ) : null}
           <div className="toolbar">
-            {tab === 'mine' ? (
-              <div className="seg">
-                {[['all', 'Все'], ['need', `Нужен перевод${d?.kind === 'full' ? ` · ${d?.counts.need ?? ''}` : ''}`], ['draft', `Черновик · ${d?.counts.draft ?? ''}`],
-                  ['unchecked', 'Без проверки'], ['approved', 'Согласовано'], ['unused', 'Не актуально для языка']].map(([k, label]) => (
-                  <button key={k} className={status === k ? 'on' : ''} onClick={() => setStatus(k)}>{label}</button>
-                ))}
-              </div>
-            ) : null}
             <select value={project ?? ''} onChange={(e) => setProject(e.target.value ? Number(e.target.value) : null)}>
               <option value="">Все проекты</option>
               {me.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -159,7 +165,7 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
           ) : null}
           {data.error ? <Message kind="error">{data.error}</Message> : null}
           <div className="table-wrap" ref={wrap}>
-            <table className={`grid sticky${canSel ? ' with-check' : ''}`}>
+            <table className={`grid sticky work-grid${canSel ? ' with-check' : ''}`}>
               <thead><tr>
                 {canSel ? <th className="s0"><input type="checkbox" checked={!!selectable.length && selectable.every((x) => sel.includes(x.id))}
                   onChange={(e) => setSel(e.target.checked ? selectable.map((x) => x.id) : [])} /></th> : null}
@@ -207,18 +213,25 @@ export function WorkPage({ me, route, reloadMe }: PageProps) {
           {d ? <Pager page={d.page} pages={d.pages} total={d.total} onPage={setPage} size={size} onSize={(a) => { setSize(a); setPage(1); }} /> : null}
         </>
       )}
-      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={() => data.reload()} />
+      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={() => data.reload()} list={items.map((x) => x.id)} onOpen={setOpen} />
       {modal ? <ChangeModal mode={modal.mode} termId={modal.row.id} tb={modal.row.tb} ru={modal.row.ru} lang={lang} langName={language?.name ?? lang}
         current={modal.current} onClose={() => setModal(null)} onDone={(t) => { setModal(null); setMsgs([{ kind: 'ok', text: t }]); data.reload(); }} /> : null}
     </div>
   );
 }
 
+/** Высота поля — по тексту: короткий перевод — одна строка. */
+function autoSize(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 2 + 'px';
+}
+
 /** Ячейка перевода: как в таблице, сохраняется сама. Несохранённый текст хранится в браузере. */
 function TrCell({ row, lang, canType, onSaved }: { row: WorkItem; lang: string; canType: boolean; onSaved: () => void }) {
   const key = `gl_tr_${row.id}_${lang}`;
   const [v, setV] = useState(() => localStorage.getItem(key) ?? row.text);
-  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'typing' | 'saving' | 'saved' | 'error'>('idle');
   const [err, setErr] = useState('');
   const [warn, setWarn] = useState<string[]>([]);
   const timer = useRef<number | undefined>(undefined);
@@ -241,15 +254,17 @@ function TrCell({ row, lang, canType, onSaved }: { row: WorkItem; lang: string; 
   };
   return (
     <div>
-      <textarea className="cell-input" rows={1} value={v} placeholder="Впишите перевод"
+      <textarea className="cell-input" rows={1} value={v} placeholder="Впишите перевод" title="Сохранится само через секунду" ref={autoSize}
+        aria-label={`Перевод: ${row.ru}`}
         onChange={(e) => {
-          setV(e.target.value); localStorage.setItem(key, e.target.value); setState('idle');
+          setV(e.target.value); localStorage.setItem(key, e.target.value); setState('typing'); autoSize(e.target);
           window.clearTimeout(timer.current);
           const t = e.target.value;
           timer.current = window.setTimeout(() => save(t), 1500);
         }}
         onBlur={() => { window.clearTimeout(timer.current); if (v !== row.text) save(v); }} />
-      <span className={`save-state ${state}`}>{state === 'saving' ? 'Сохраняю…' : state === 'saved' ? 'Сохранено' : state === 'error' ? err : ''}</span>
+      <span className={`save-state ${state}`} role="status">{state === 'typing' ? 'Сохраню через секунду…' : state === 'saving' ? 'Сохраняю…'
+        : state === 'saved' ? <><Icon name="check" size={12} /> Сохранено</> : state === 'error' ? err : ''}</span>
       {warn.length ? <div className="small warn-line"><Icon name="alert" size={14} /> {warn.join(' ')}</div> : null}
     </div>
   );

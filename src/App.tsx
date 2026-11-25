@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { can, rpc, ROLE_LABELS, supabase, type Me } from './api';
-import { readRoute, type Route } from './router';
+import { readRoute, setHashParam, type Route } from './router';
 import { Avatar, ANIMALS, AVATAR_KEYS } from './ui/Avatar';
 import { Button, Message } from './ui/kit';
 import { HomePage } from './pages/Home';
@@ -17,6 +17,7 @@ import { FeedbackPage } from './pages/Feedback';
 import { HelpPage } from './pages/Help';
 import { ImportTranslationsPage } from './pages/ImportTranslations';
 import { FeedbackModal } from './ui/FeedbackModal';
+import { TermDrawer } from './ui/TermDrawer';
 import { Icon } from './ui/Icon';
 import { menuHint } from './menuHints';
 import { ThemeChoice } from './theme';
@@ -32,6 +33,9 @@ export function App() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [counts, setCounts] = useState<DashCard[]>([]);
+  // ссылка на карточку (…#/glossary?term=TB-00123) открывает термин поверх любой страницы
+  const [linkTb, setLinkTb] = useState<string | null>(readRoute().params.get('term'));
+  useEffect(() => { setLinkTb(route.params.get('term')); }, [route]);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -184,6 +188,7 @@ export function App() {
           {current === 'admin' && <AdminPage {...props} />}
           {current === 'help' && <HelpPage {...props} />}
           {current === 'feedback' && <FeedbackPage {...props} />}
+          {linkTb ? <TermDrawer me={me} id={null} tb={linkTb} onClose={() => { setHashParam('term', null); setLinkTb(null); }} /> : null}
         </section>
       </div>
       <button className="fb-fab" onClick={() => setFeedbackOpen(true)} aria-label="Обратная связь: вопрос, проблема или идея" title="Обратная связь: вопрос, проблема или идея">

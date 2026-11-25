@@ -16,3 +16,14 @@ export function go(page: string, params?: Record<string, string | number | undef
 }
 
 export interface PageProps { me: Me; route: Route; reloadMe: () => Promise<void> }
+
+/** Тихо поменять параметр в адресе (без перехода): например, номер открытой карточки, чтобы ссылку можно было отправить. */
+export function setHashParam(key: string, value: string | null) {
+  const r = readRoute();
+  const cur = r.params.get(key);
+  if (cur === value || (!cur && !value)) return;
+  if (value) r.params.set(key, value); else r.params.delete(key);
+  const qs = r.params.toString();
+  window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + '#/' + r.page + (qs ? '?' + qs : ''));
+}
+export const hashParam = (key: string) => readRoute().params.get(key);

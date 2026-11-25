@@ -123,7 +123,7 @@ try {
   // 3. Карточка термина
   await type('input.search', 'корзина'); await sleep(1200);
   await click('.grid tbody tr'); await waitFor('.drawer'); await sleep(900);
-  await mark(['.drawer .copy', 'text:Заменить', 'text:Комментарии']);
+  await mark(['.drawer .copy', 'text:Ссылка', '.term-nav', 'text:Заменить', 'text:Комментарии']);
   await shot('card', '.drawer', 0, 820);
 
   // 3б. Комментарий лингвиста

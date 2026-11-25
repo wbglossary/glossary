@@ -1,12 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { fmtDate, langGen, rpc, type Forbidden, type GlossaryItem, type Me, type Page, type TermCard, type TermLang } from '../api';
 import { AuthorChip, CopyButton } from './bits';
 import { ChangeModal, type ChangeMode } from './ChangeModal';
 import { Button, Confirm, Drawer, Message, SearchBox, StatusBadge, useAsync } from './kit';
 import { LogCell } from '../logText';
+import { Icon, type IconName } from './Icon';
+import { hashParam, setHashParam } from '../router';
 
 /** Карточка термина справа. Кнопки — только доступные; права всё равно проверяет база. */
-export function TermDrawer({ me, id, tb, onClose, onChanged }: { me: Me; id: number | null; tb?: string | null; onClose: () => void; onChanged?: () => void }) {
+export function TermDrawer({ me, id, tb, onClose, onChanged, list, onOpen }: {
+  me: Me; id: number | null; tb?: string | null; onClose: () => void; onChanged?: () => void;
+  /** порядок терминов в таблице — для «предыдущий / следующий» */
+  list?: number[]; onOpen?: (id: number) => void;
+}) {
   // открыть можно по id или по номеру TB (например, из журнала изменений)
   const { data: c, error, loading, reload } = useAsync(
     () => (id ? rpc<TermCard | null>('term_card', { p_id: id }) : tb ? rpc<TermCard | null>('term_card', { p_tb: tb }) : Promise.resolve(null)), [id, tb]);
@@ -19,7 +25,32 @@ export function TermDrawer({ me, id, tb, onClose, onChanged }: { me: Me; id: num
   const [editFields, setEditFields] = useState<string | null>(null);
   const [showEmpty, setShowEmpty] = useState(false);
   const [editProjects, setEditProjects] = useState(false);
-  useEffect(() => { setShowEmpty(false); setEditProjects(false); }, [id, tb]);
+  useEffect(() => { setShowEmpty(false); setEditProjects(false); setMsg(null); }, [id, tb]);
+  const isOpen = !!id || !!tb;
+
+  // номер открытой карточки — в адресе страницы, чтобы ссылку можно было отправить коллеге
+  const openTb = isOpen && c ? c.tb : null;
+  useEffect(() => {
+    if (!openTb) return;
+    setHashParam('term', openTb);
+    return () => { if (hashParam('term') === openTb) setHashParam('term', null); };
+  }, [openTb]);
+
+  // предыдущий / следующий термин из той же таблицы: кнопки и стрелки ← →
+  const pos = c && list ? list.indexOf(c.id) : -1;
+  const prevId = pos > 0 ? list![pos - 1] : null;
+  const nextId = pos >= 0 && pos < list!.length - 1 ? list![pos + 1] : null;
+  useEffect(() => {
+    if (!isOpen || !onOpen) return;
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest('input, textarea, select, [contenteditable]') || document.querySelector('.modal'))) return;
+      if (e.key === 'ArrowLeft' && prevId) { e.preventDefault(); onOpen(prevId); }
+      if (e.key === 'ArrowRight' && nextId) { e.preventDefault(); onOpen(nextId); }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [isOpen, onOpen, prevId, nextId]);
 
   const act = async (fn: () => Promise<unknown>, ok: string, close = false) => {
     setBusy(true);
@@ -33,19 +64,28 @@ export function TermDrawer({ me, id, tb, onClose, onChanged }: { me: Me; id: num
   }, on ? 'Согласовано.' : 'Согласование снято — перевод снова черновик.');
 
   return (
-    <Drawer open={!!id || !!tb} onClose={onClose} title={c ? <><span className="tb">{c.tb}</span> {c.ru} <CopyButton text={c.ru} /></> : 'Термин'}>
+    <Drawer open={isOpen} onClose={onClose} title={c ? <><span className="tb">{c.tb}</span> {c.ru} <CopyButton text={c.ru} /></> : 'Термин'}
+      head={c ? <>
+        <CopyAll c={c} />
+        <CopyLink tb={c.tb} />
+        {list && onOpen && pos >= 0 ? <span className="term-nav">
+          <button className="icon-btn" disabled={!prevId} onClick={() => prevId && onOpen(prevId)} title="Предыдущий термин (←)" aria-label="Предыдущий термин"><Icon name="left" size={16} /></button>
+          <span className="muted small">{pos + 1} из {list.length}</span>
+          <button className="icon-btn" disabled={!nextId} onClick={() => nextId && onOpen(nextId)} title="Следующий термин (→)" aria-label="Следующий термин"><Icon name="right" size={16} /></button>
+        </span> : null}
+      </> : null}>
       {loading && !c ? <div>Загрузка…</div> : null}
       {error ? <Message kind="error">{error}</Message> : null}
       {!loading && !c && !error ? <Message kind="warn">Термин не найден — возможно, его удалили или объединили с другим.</Message> : null}
       {msg ? <Message kind={msg.kind} onClose={() => setMsg(null)}>{msg.text}</Message> : null}
       {c ? (
         <>
-          <div className="row gap">
+          <div className="row gap drawer-sticky">
             <span className={`badge ${c.status === 'active' ? 'st-approved' : 'st-unused'}`}>{c.status === 'active' ? 'Действует' : 'В архиве'}</span>
             <div className="tabs">
               <button className={tab === 'term' ? 'on' : ''} onClick={() => setTab('term')}>Термин</button>
               <button className={tab === 'comments' ? 'on' : ''} onClick={() => setTab('comments')}>Комментарии{c.comments.length ? ` (${c.comments.length})` : ''}</button>
-              <button className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>История</button>
+              <button className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>История{c.history.length ? ` (${c.history.length})` : ''}</button>
             </div>
           </div>
 
@@ -96,35 +136,39 @@ export function TermDrawer({ me, id, tb, onClose, onChanged }: { me: Me; id: num
                       <b>{l.code}</b> <span className="muted">{l.name}{l.kind === 'short' ? ' · сокращённый' : ''}</span>
                       <StatusBadge status={l.status} />
                       <span style={{ flex: 1 }} />
-                      {l.can.approve && (l.status === 'draft' || l.status === 'unchecked') ? <Button small kind="primary" disabled={busy} onClick={() => approve(l, true)}>Согласовать</Button> : null}
-                      {l.can.approve && l.status === 'approved' ? <Button small disabled={busy} onClick={() => approve(l, false)}>Снять согласование</Button> : null}
-                      {l.can.unused && l.status !== 'unused' ? <Button small onClick={() => { if (confirm_(`Пометить ${l.name} «Не актуально для языка»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не актуально для языка».'); }}>Не актуально</Button> : null}
-                      {l.can.unused && l.unused ? <Button small onClick={() => act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: false }), 'Язык возвращён в работу.')}>Вернуть в работу</Button> : null}
-                      {l.can.optional && l.status === 'optional' ? <Button small onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: false }), 'Теперь перевод на этот язык нужен.')}>Нужен перевод</Button> : null}
-                      {l.can.optional && l.status === 'need' && me.role !== 'validator' ? <Button small kind="link" onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: true }), 'Перевод на этот язык — по желанию.')}>По желанию</Button> : null}
+                      <span className="acts" role="group" aria-label={`Действия: ${l.name}`}>
+                        {l.can.approve && (l.status === 'draft' || l.status === 'unchecked') ? <Act icon="check" primary disabled={busy} title="Утвердить перевод: статус станет «Согласовано»" onClick={() => approve(l, true)}>Согласовать</Act> : null}
+                        {l.can.approve && l.status === 'approved' ? <Act icon="close" disabled={busy} title="Перевод снова станет черновиком" onClick={() => approve(l, false)}>Снять согласование</Act> : null}
+                        {c.status === 'active' && !l.unused && l.live.length && (l.can.type || l.can.request || l.can.edit) ? <Act icon="plus" title="Ещё один допустимый перевод рядом с основным" onClick={() => setModal({ mode: 'variant', lang: l })}>Вариант</Act> : null}
+                        {l.can.optional && l.status === 'optional' ? <Act icon="alert" title="Перевод на этот язык снова нужен" onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: false }), 'Теперь перевод на этот язык нужен.')}>Нужен перевод</Act> : null}
+                        {l.can.optional && l.status === 'need' && me.role !== 'validator' ? <Act icon="down" title="Перевод не обязателен — сделают, если будет время" onClick={() => act(() => rpc('set_lang_optional', { p_term: c.id, p_lang: l.code, p_optional: true }), 'Перевод на этот язык — по желанию.')}>По желанию</Act> : null}
+                        {l.can.unused && l.status !== 'unused' ? <Act icon="archive" title="Термин не нужен этому языку: в выгрузке ячейка будет пустой" onClick={() => { if (confirm_(`Пометить ${l.name} «Не актуально для языка»? В выгрузке ячейка будет пустой.`)) act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: true }), 'Язык помечен «Не актуально для языка».'); }}>Не актуально</Act> : null}
+                        {l.can.unused && l.unused ? <Act icon="history" title="Снять «не актуально» — термин снова нужен языку" onClick={() => act(() => rpc('set_unused', { p_term: c.id, p_lang: l.code, p_unused: false }), 'Язык возвращён в работу.')}>Вернуть в работу</Act> : null}
+                      </span>
                     </div>
                     {l.live.length ? l.live.map((t, i) => (
-                      <div key={t.id} className="row gap" style={{ marginTop: 6 }}>
-                        <span>{t.text}</span><CopyButton text={t.text} />
+                      <div key={t.id} className="tr-line">
+                        <span className="tr-text">{t.text}</span><CopyButton text={t.text} />
                         {i > 0 ? <span className="muted small">вариант</span> : null}
                         {t.status !== 'approved' ? <StatusBadge status={t.status as never} /> : null}
                         <span style={{ flex: 1 }} />
-                        {l.can.edit && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'edit', lang: l, current: t })}>Изменить</Button> : null}
-                        {l.can.request && t.status !== 'draft' ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
-                        {!l.can.edit && !l.can.request && l.can.type && t.status === 'approved' && me.langs.some((x) => x.code === l.code && x.role === 'translator') ? <Button small kind="link" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Button> : null}
+                        <span className="acts">
+                          {l.can.edit && t.status !== 'draft' ? <Act icon="pen" title="Исправить этот перевод сразу" onClick={() => setModal({ mode: 'edit', lang: l, current: t })}>Изменить</Act> : null}
+                          {(l.can.request || (!l.can.edit && l.can.type && t.status === 'approved' && me.langs.some((x) => x.code === l.code && x.role === 'translator'))) && t.status !== 'draft'
+                            ? <Act icon="swap" title="Предложить другой перевод вместо этого — решит валидатор" onClick={() => setModal({ mode: 'replace', lang: l, current: t })}>Заменить</Act> : null}
+                        </span>
                       </div>
                     )) : <div className="muted small" style={{ marginTop: 6 }}>Перевода нет</div>}
-                    {c.status === 'active' && !l.unused ? (
+                    {c.status === 'active' && !l.unused && !l.live.length && (l.can.type || l.can.request) ? (
                       <div className="row gap" style={{ marginTop: 6 }}>
-                        {!l.live.length && (l.can.type || l.can.request) ? <Button small onClick={() => setModal({ mode: 'translation', lang: l })}>{l.can.type ? 'Вписать перевод' : 'Предложить перевод'}</Button> : null}
-                        {l.live.length && (l.can.type || l.can.request || l.can.edit) ? <Button small kind="link" onClick={() => setModal({ mode: 'variant', lang: l })}>Добавить вариант</Button> : null}
+                        <Act icon="pen" title={l.can.type ? 'Вписать перевод на этот язык' : 'Предложить перевод — решит валидатор'} onClick={() => setModal({ mode: 'translation', lang: l })}>{l.can.type ? 'Вписать перевод' : 'Предложить перевод'}</Act>
                       </div>
                     ) : null}
                     {l.history.map((h, i) => <div key={i} className="muted small">было «{h.text}» → «{h.replaced_by}», {fmtDate(h.at, false)}</div>)}
                     <LangFields l={l} />
                     {l.can.fields ? (editFields === l.code
                       ? <FieldsForm c={c} l={l} me={me} onDone={(saved) => { setEditFields(null); if (saved) { setMsg({ kind: 'ok', text: saved }); reload(); } }} />
-                      : <Button small kind="link" onClick={() => setEditFields(l.code)}>Комментарий лингвиста и «Как нельзя»</Button>) : null}
+                      : <Act icon="comment" title="Подсказка для переводчиков этого языка и неправильные варианты" onClick={() => setEditFields(l.code)}>Комментарий лингвиста и «Как нельзя»</Act>) : null}
                   </div>
                 );
                 return (
@@ -156,7 +200,9 @@ export function TermDrawer({ me, id, tb, onClose, onChanged }: { me: Me; id: num
               </div>
               <p className="muted small">Создан {fmtDate(c.created_at)} ({c.created_by}). Изменён {fmtDate(c.updated_at)} ({c.updated_by}).</p>
             </>
-          ) : tab === 'comments' ? <Comments c={c} reload={reload} setMsg={setMsg} /> : (
+          ) : tab === 'comments' ? <Comments c={c} reload={reload} setMsg={setMsg} /> : !c.history.length ? (
+            <div className="empty-note"><Icon name="history" size={22} /><div><b>Изменений пока не было.</b><br />Здесь появится, кто и когда менял термин и переводы: было → стало.</div></div>
+          ) : (
             <table className="grid compact">
               <thead><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Было</th><th>Стало</th></tr></thead>
               <tbody>{c.history.map((h, i) => (
@@ -294,7 +340,7 @@ function Comments({ c, reload, setMsg }: { c: TermCard; reload: () => void; setM
             <div style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{m.body}</div>
           </li>
         ))}</ul>
-      ) : <p className="muted">Комментариев пока нет. Задайте вопрос или поделитесь мнением о термине.</p>}
+      ) : <div className="empty-note"><Icon name="comment" size={22} /><div><b>Комментариев пока нет.</b><br />Спросите, если сомневаетесь в переводе, или подскажите, где термин используется. Комментарий увидят все, кто открывает термин.</div></div>}
       {c.can.comment ? (
         <>
           <label className="field"><span>Ваш комментарий</span><textarea value={text} onChange={(e) => setText(e.target.value)} /></label>
@@ -392,5 +438,47 @@ function ProjectsForm({ c, me, onDone }: { c: TermCard; me: Me; onDone: (n: numb
         <Button small onClick={() => onDone(null)}>Отмена</Button>
       </div>
     </div>
+  );
+}
+
+/** Кнопка действия в карточке: значок + короткая подпись, подробности — во всплывающей подсказке. */
+function Act({ icon, children, title, onClick, disabled, primary }: { icon: IconName; children: ReactNode; title: string; onClick: () => void; disabled?: boolean; primary?: boolean }) {
+  return <button type="button" className={`act${primary ? ' primary' : ''}`} title={title} disabled={disabled} onClick={onClick}><Icon name={icon} size={14} /> {children}</button>;
+}
+
+async function copyText(text: string) {
+  try { await navigator.clipboard.writeText(text); } catch {
+    const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+  }
+}
+
+/** Скопировать весь термин: номер, русский, определение, примеры и все переводы — удобно вставить в письмо или чат. */
+function CopyAll({ c }: { c: TermCard }) {
+  const [done, setDone] = useState(false);
+  const text = [
+    `${c.tb} ${c.ru}`,
+    c.definition ? `Определение: ${c.definition}` : '',
+    c.examples ? `Примеры: ${c.examples}` : '',
+    ...c.langs.filter((l) => l.live.length && !l.unused).map((l) => `${l.code}: ${l.live.map((t) => t.text).join('; ')}`)
+  ].filter(Boolean).join('\n');
+  return (
+    <button className="icon-btn" title="Скопировать весь термин: номер, определение и все переводы" aria-label="Скопировать весь термин"
+      onClick={async () => { await copyText(text); setDone(true); setTimeout(() => setDone(false), 1400); }}>
+      <Icon name={done ? 'check' : 'copy'} size={16} /><span className="small">{done ? 'Скопировано' : 'Всё'}</span>
+    </button>
+  );
+}
+
+/** Ссылка на карточку — чтобы отправить коллеге. */
+function CopyLink({ tb }: { tb: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button className="icon-btn" title="Скопировать ссылку на этот термин" aria-label="Скопировать ссылку на термин"
+      onClick={async () => {
+        await copyText(window.location.origin + window.location.pathname + '#/glossary?term=' + encodeURIComponent(tb));
+        setDone(true); setTimeout(() => setDone(false), 1400);
+      }}>
+      <Icon name={done ? 'check' : 'link'} size={16} /><span className="small">{done ? 'Скопировано' : 'Ссылка'}</span>
+    </button>
   );
 }

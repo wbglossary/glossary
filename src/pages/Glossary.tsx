@@ -206,7 +206,7 @@ export function GlossaryPage({ me, route, reloadMe }: PageProps) {
         {!loading && data && !data.items.length ? <Empty>Ничего не найдено. Попробуйте другое слово или снимите фильтры.</Empty> : null}
       </div>
       {data && data.pages > 1 ? <Pager page={data.page} pages={data.pages} total={data.total} onPage={setPage} /> : null}
-      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={reload} />
+      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={reload} list={data?.items.map((x) => x.id)} onOpen={setOpen} />
     </div>
   );
 }

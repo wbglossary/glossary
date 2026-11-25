@@ -75,7 +75,7 @@ export function ArchivePage({ me }: PageProps) {
           <p className="muted small">Отклонённую заявку вернуть нельзя — при необходимости её подают заново.</p>
         </div>
       )}
-      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={reload} />
+      <TermDrawer me={me} id={open} onClose={() => setOpen(null)} onChanged={reload} list={data?.terms.map((t) => t.id)} onOpen={setOpen} />
       <RequestDrawer item={openReq} onClose={() => setOpenReq(null)} />
       {confirm?.kind === 'restore' ? (
         <Confirm title={`Вернуть ${confirm.t.tb} «${confirm.t.ru}»?`} confirmLabel="Вернуть" onCancel={() => setConfirm(null)} onConfirm={act}>

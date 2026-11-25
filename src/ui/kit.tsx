@@ -59,7 +59,7 @@ export function Confirm(p: {
   );
 }
 
-export function Drawer({ open, onClose, children, title }: { open: boolean; onClose: () => void; children: ReactNode; title?: ReactNode }) {
+export function Drawer({ open, onClose, children, title, head }: { open: boolean; onClose: () => void; children: ReactNode; title?: ReactNode; head?: ReactNode }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -80,6 +80,7 @@ export function Drawer({ open, onClose, children, title }: { open: boolean; onCl
     <aside className="drawer" ref={ref}>
       <div className="drawer-head">
         <div className="drawer-title">{title}</div>
+        {head ? <div className="drawer-tools">{head}</div> : null}
         <button className="msg-x" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
       </div>
       <div className="drawer-body">{children}</div>
